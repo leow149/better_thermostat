@@ -49,9 +49,12 @@ def _get_valve_control(
     valve_settings_dict contains 'valve_percent' and 'apply_valve' keys.
     Returns (None, None) if no valve control should be applied.
     """
-    # Boost mode opens the valve up to the user-configured
-    # valve_max_opening (default 100%).
-    if _is_boost_heating_active(self):
+    # Forcing the valve on a non-direct-valve TRV bypasses the calibration chain
+    # and leaves the valve stuck open after boost ends.
+    if (
+        _is_boost_heating_active(self)
+        and calibration_type == CalibrationType.DIRECT_VALVE_BASED
+    ):
         max_opening = (self.real_trvs.get(heater_entity_id) or {}).get(
             "valve_max_opening", 100
         )
@@ -422,8 +425,6 @@ async def control_trv(self, heater_entity_id=None):
             return False
 
         _temperature = _remapped_states.get("temperature", None)
-        if _is_boost_heating_active(self):
-            _temperature = self.real_trvs[heater_entity_id]["max_temp"]
         _calibration = _remapped_states.get("local_temperature_calibration", None)
         _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
             "calibration_mode", CalibrationMode.MPC_CALIBRATION
@@ -431,6 +432,13 @@ async def control_trv(self, heater_entity_id=None):
         _calibration_type = self.real_trvs[heater_entity_id]["advanced"].get(
             "calibration", CalibrationType.TARGET_TEMP_BASED
         )
+        # Pair the forced 100 % valve with a max-temp setpoint so the TRV
+        # firmware does not fight the valve command.
+        if (
+            _is_boost_heating_active(self)
+            and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
+        ):
+            _temperature = self.real_trvs[heater_entity_id]["max_temp"]
 
         # Optional: set valve position if supported (e.g., MQTT/Z2M)
         try:
@@ -471,8 +479,14 @@ async def control_trv(self, heater_entity_id=None):
             _new_hvac_mode = HVACMode.OFF
 
         # Safety override: if boost mode was active but we forced OFF (window/no-heat),
-        # ensure valve is reset to 0% to prevent overheating.
-        if _is_boost_heating_active(self) and _new_hvac_mode == HVACMode.OFF:
+        # ensure valve is reset to 0% to prevent overheating. Only direct-valve
+        # calibration types accept valve commands; LOCAL_BASED and
+        # TARGET_TEMP_BASED control via offset / setpoint instead.
+        if (
+            _is_boost_heating_active(self)
+            and _new_hvac_mode == HVACMode.OFF
+            and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
+        ):
             _LOGGER.debug(
                 "better_thermostat %s: Boost safety override - resetting valve to 0%% because HVAC mode is OFF",
                 self.device_name,
