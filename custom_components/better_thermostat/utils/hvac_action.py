@@ -150,9 +150,11 @@ def compute_hvac_action(
         action = HVACAction.COOLING
         tolerance_hold = False
 
-    # TRV override: if base decision is IDLE but any TRV is active, show HEATING
+    # TRV override: if base decision is IDLE but any TRV is active, show HEATING.
+    # Suppressed at or above target so a still-closing valve cannot lift the
+    # displayed action above IDLE once the hysteresis decided to stop.
     if action == HVACAction.IDLE:
-        if ignore_states or window_open:
+        if ignore_states or window_open or cur_temp >= target_temp:
             return HvacActionResult(
                 action=HVACAction.IDLE,
                 tolerance_decision=tolerance_decision,
