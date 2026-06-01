@@ -1866,6 +1866,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 return
             await check_and_update_degraded_mode(self)
         except Exception:
+            _LOGGER.debug(
+                "better_thermostat %s: maintenance availability check failed; "
+                "skipping this tick",
+                self.device_name,
+            )
             return
 
         # Skip if already running or not due
@@ -1875,7 +1880,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         try:
             if self.next_valve_maintenance and now < self.next_valve_maintenance:
                 return
-        except Exception:
+        except TypeError:
+            # next_valve_maintenance is not comparable to now; fall through and
+            # let this tick re-evaluate the schedule.
             pass
 
         # Skip when device is OFF or window open
@@ -1899,6 +1906,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         try:
             trvs_to_service = collect_maintenance_trvs(self.real_trvs)
         except Exception:
+            _LOGGER.debug(
+                "better_thermostat %s: could not collect maintenance TRVs",
+                self.device_name,
+            )
             trvs_to_service = []
 
         if not trvs_to_service:
@@ -1930,7 +1941,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv_id in trvs:
                 try:
                     self.real_trvs[trv_id]["ignore_trv_states"] = True
-                except Exception:
+                except (KeyError, TypeError):
                     pass
 
             # Build snapshots (skips TRVs with state=None)
@@ -1944,7 +1955,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if trv_id not in serviced_ids:
                     try:
                         self.real_trvs[trv_id]["ignore_trv_states"] = False
-                    except Exception:
+                    except (KeyError, TypeError):
                         pass
 
             # Bind adapter callbacks to self
@@ -1955,6 +1966,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     ok = await _delegate_set_valve(self, entity_id, int(pct))
                     return bool(ok)
                 except Exception:
+                    _LOGGER.debug(
+                        "better_thermostat %s: maintenance valve set failed for %s",
+                        self.device_name,
+                        entity_id,
+                    )
                     return False
 
             async def _set_temp(entity_id: str, temp: float) -> None:
@@ -1976,7 +1992,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv_id in serviced_ids:
                 try:
                     self.real_trvs[trv_id]["ignore_trv_states"] = False
-                except Exception:
+                except (KeyError, TypeError):
                     pass
 
             # Schedule next run
