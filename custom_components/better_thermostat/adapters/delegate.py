@@ -39,16 +39,19 @@ async def load_adapter(self, integration, entity_id, get_name=False):
             integration,
             "generic",
         )
-        pass
 
     if get_name:
         return integration
     return self.adapter
 
 
-@async_retry(retries=5)
 async def init(self, entity_id):
-    """Init adapter."""
+    """Init adapter.
+
+    Transient unavailability is handled inside the adapter's
+    ``wait_for_calibration_entity_or_timeout`` (6 × 5 s polls). The call
+    is invoked under a 30 s outer budget in ``_initialize_trvs``.
+    """
     return await self.real_trvs[entity_id]["adapter"].init(self, entity_id)
 
 
@@ -96,6 +99,9 @@ async def set_temperature(self, entity_id, temperature):
         t = float(temperature)
     except (TypeError, ValueError):
         t = 0.0
+
+    # Initialize step with default value
+    step = 0.5
     try:
         # Step precedence: per-TRV (usually from config) > global config > device attribute > default 0.5
         per_trv_step = self.real_trvs.get(entity_id, {}).get("target_temp_step")
@@ -139,7 +145,7 @@ async def set_temperature(self, entity_id, temperature):
             getattr(self, "device_name", "unknown"),
             t,
             rounded,
-            step if "step" in locals() else None,
+            step,
         )
     # Keep last_temperature in sync with the actually sent value
     try:

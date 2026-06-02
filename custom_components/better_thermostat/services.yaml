@@ -1,14 +1,6 @@
-save_current_target_temperature:
-  name: Save target temperature
-  description: Save the current target temperature for later use.
-  target:
-    entity:
-      domain: climate
-      integration: better_thermostat
-
-restore_saved_target_temperature:
-  name: Restore target temperature
-  description: Restore the previously saved target temperature.
+run_valve_maintenance:
+  name: Run valve maintenance now
+  description: Run the valve maintenance cycle immediately for this Better Thermostat entity.
   target:
     entity:
       domain: climate
@@ -17,35 +9,6 @@ restore_saved_target_temperature:
 reset_heating_power:
   name: Reset heating power
   description: Reset the heating power to its default value.
-  target:
-    entity:
-      domain: climate
-      integration: better_thermostat
-
-set_temp_target_temperature:
-  name: Set temporary (ECO) target temperature
-  description: Set a temporary target temperature and save the current temperature.
-  fields:
-    temperature:
-      name: Temperature
-      description: New target temperature to set
-      required: true
-      selector:
-        number:
-          min: 0
-          max: 35
-          step: 0.5
-          mode: box
-          unit_of_measurement: °C
-  target:
-    entity:
-      domain: climate
-      integration: better_thermostat
-
-
-run_valve_maintenance:
-  name: Run valve maintenance now
-  description: Run the valve maintenance cycle immediately for this Better Thermostat entity.
   target:
     entity:
       domain: climate

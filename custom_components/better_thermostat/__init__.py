@@ -4,19 +4,25 @@ from asyncio import Lock
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import CONF_NAME, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 
 from .utils.const import (
     CONF_CALIBRATION_MODE,
     CONF_HEATER,
+    CONF_HUMIDITY,
     CONF_NO_SYSTEM_MODE_OFF,
+    CONF_OUTDOOR_SENSOR,
+    CONF_SENSOR,
+    CONF_SENSOR_WINDOW,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
     CalibrationMode,
 )
+from .utils.helpers import get_device_model
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
@@ -68,6 +74,41 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove repair-registry issues created by this Better Thermostat instance.
+
+    Issues are scoped by ``device_name`` or by individual ``entity_id`` and
+    persist in HA's issue registry until explicitly deleted, so they have to
+    be cleaned up here to avoid stale warnings after a config entry is gone.
+    """
+    device_name = entry.data.get(CONF_NAME, entry.title)
+
+    for issue_id in (
+        f"invalid_external_temperature_{device_name}",
+        f"invalid_window_state_{device_name}",
+        f"degraded_mode_{device_name}",
+    ):
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+
+    entity_ids: list[str] = []
+    for trv in entry.data.get(CONF_HEATER) or []:
+        trv_id = trv.get("trv")
+        if trv_id:
+            entity_ids.append(trv_id)
+    for conf_key in (
+        CONF_SENSOR,
+        CONF_HUMIDITY,
+        CONF_SENSOR_WINDOW,
+        CONF_OUTDOOR_SENSOR,
+    ):
+        eid = entry.data.get(conf_key)
+        if eid:
+            entity_ids.append(eid)
+
+    for eid in entity_ids:
+        ir.async_delete_issue(hass, DOMAIN, f"missing_entity_{eid}")
+
+
 async def async_reload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> None:
     """Reload the config entry."""
     await async_unload_entry(hass, config_entry)
@@ -77,19 +118,17 @@ async def async_reload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
 async def async_migrate_entry(hass, config_entry: ConfigEntry):
     """Migrate old entry."""
     _LOGGER.debug("Migrating from version %s", config_entry.version)
+
+    new = {**config_entry.data}
+
     if config_entry.version == 1:
-        new = {**config_entry.data}
         for trv in new[CONF_HEATER]:
             trv["advanced"].update({CalibrationMode.AGGRESIVE_CALIBRATION: False})
-        hass.config_entries.async_update_entry(config_entry, data=new, version=2)
 
     if config_entry.version == 2:
-        new = {**config_entry.data}
         new[CONF_WINDOW_TIMEOUT] = 0
-        hass.config_entries.async_update_entry(config_entry, data=new, version=3)
 
     if config_entry.version == 3:
-        new = {**config_entry.data}
         for trv in new[CONF_HEATER]:
             if (
                 CalibrationMode.AGGRESIVE_CALIBRATION in trv["advanced"]
@@ -102,26 +141,40 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
                 trv["advanced"].update(
                     {CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION}
                 )
-        hass.config_entries.async_update_entry(config_entry, data=new, version=4)
 
     if config_entry.version == 4:
-        new = {**config_entry.data}
         for trv in new[CONF_HEATER]:
             trv["advanced"].update({CONF_NO_SYSTEM_MODE_OFF: False})
-        hass.config_entries.async_update_entry(config_entry, data=new, version=5)
 
     if config_entry.version == 5:
-        new = {**config_entry.data}
         new[CONF_WINDOW_TIMEOUT_AFTER] = new[CONF_WINDOW_TIMEOUT]
-        hass.config_entries.async_update_entry(config_entry, data=new, version=6)
 
-    if config_entry.version == 6:
-        new = {**config_entry.data}
-        # Add ECO target temperature with default value if not present
-        # ECO mode removed; preserved eco preset via PRESET_ECO - wtom: 2026-01-02
-        # if "eco_temperature" not in new:
-        #     new["eco_temperature"] = 18.0
-        hass.config_entries.async_update_entry(config_entry, data=new, version=7)
+    if config_entry.version < 18:
+        # Make sure all TRVs fetch the get_device_model method to update their model info, which is used for device-specific quirks again.
+        migration_context = type(
+            "MigrationContext",
+            (),
+            {"hass": hass, "device_name": config_entry.title, "model": None},
+        )()
+        heaters = new.get(CONF_HEATER, [])
+        for trv in heaters:
+            entity_id = trv.get("entity_id")
+            if entity_id:
+                trv["model"] = await get_device_model(migration_context, entity_id)
+                _LOGGER.debug(
+                    "Migration to version 1.8: TRV %s model updated to %s",
+                    entity_id,
+                    trv["model"],
+                )
+        new[CONF_HEATER] = heaters
+
+        _LOGGER.debug(
+            "Migration to version 1.8: Updated TRV model information for all TRVs in config entry %s",
+            config_entry.entry_id,
+        )
+        # update the new config entry with the updated TRV model information
+
+    hass.config_entries.async_update_entry(config_entry, data=new, version=18)
 
     _LOGGER.info("Migration to version %s successful", config_entry.version)
 

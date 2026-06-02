@@ -27,7 +27,7 @@ def _cancel_pending_valve_bump(trv_state: dict) -> None:
     if task is not None:
         try:
             task.cancel()
-        except Exception:
+        except (asyncio.CancelledError, RuntimeError):
             pass
 
 
@@ -100,13 +100,34 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
         opening_candidates = []
         closing_candidates = []
         generic_candidates = []
+
+        # Known translation_key values for Sonoff TRVZB valve entities.
+        # These are stable, language-independent identifiers set by the integration.
+        _TK_OPENING = {
+            "valve_opening_degree",
+            "valve_position",
+            "pi_heating_demand",
+            "heating_demand",
+            "valve",
+        }
+        _TK_CLOSING = {"valve_closing_degree"}
+
         for ent in entity_registry.entities.values():
             if ent.device_id != device_id or ent.domain != "number":
                 continue
+            # Prefer translation_key (stable, language-independent)
+            tk = getattr(ent, "translation_key", None)
+            if tk:
+                if tk in _TK_CLOSING:
+                    closing_candidates.append(ent.entity_id)
+                    continue
+                if tk in _TK_OPENING:
+                    opening_candidates.append(ent.entity_id)
+                    continue
+            # Fallback: string matching on entity_id / unique_id / original_name
             en = (ent.entity_id or "").lower()
             uid = (ent.unique_id or "").lower()
             name = (getattr(ent, "original_name", None) or "").lower()
-            # Prefer explicit Sonoff names first
             if (
                 "valve_opening_degree" in en
                 or "valve_opening_degree" in uid
@@ -220,7 +241,7 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
                 entity_id,
             )
         return wrote
-    except Exception as ex:
+    except (TypeError, ValueError, KeyError, AttributeError) as ex:
         _LOGGER.debug(
             "better_thermostat %s: TRVZB maybe_set_sonoff_valve_percent exception: %s",
             self.device_name,
@@ -252,7 +273,7 @@ async def override_set_valve(self, entity_id, percent: int):
         last_pct_raw = trv_state.get("last_valve_percent")
         try:
             last_pct = None if last_pct_raw is None else int(last_pct_raw)
-        except Exception:
+        except (TypeError, ValueError):
             last_pct = None
 
         # If we don't know the last commanded percent, just set directly.
@@ -282,22 +303,24 @@ async def override_set_valve(self, entity_id, percent: int):
                     await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
                 except asyncio.CancelledError:
                     return
-                except Exception as ex:
+                except (RuntimeError, ValueError, KeyError) as ex:
                     _LOGGER.debug(
                         "better_thermostat %s: TRVZB delayed valve set exception: %s",
                         getattr(self, "device_name", "unknown"),
                         ex,
                     )
 
-            trv_state["_trvzb_valve_bump_task"] = self.hass.async_create_task(
-                _delayed_set()
+            trv_state["_trvzb_valve_bump_task"] = (
+                self.hass.async_create_background_task(
+                    _delayed_set(), name=f"bt_trvzb_valve_bump_{entity_id}"
+                )
             )
             return True
 
         # Opening (or same) => set directly.
         ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
         return bool(ok)
-    except Exception:
+    except (TypeError, ValueError, KeyError, AttributeError):
         return False
 
 
@@ -330,9 +353,19 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
             return False
         device_id = reg_entity.device_id
         target_entities = []
+
+        # Known translation_key values for Sonoff TRVZB external temperature input.
+        _TK_EXTERNAL_TEMP = {"external_temperature_input", "external_temperature"}
+
         for ent in entity_registry.entities.values():
             if ent.device_id != device_id or ent.domain != "number":
                 continue
+            # Prefer translation_key (stable, language-independent)
+            tk = getattr(ent, "translation_key", None)
+            if tk and tk in _TK_EXTERNAL_TEMP:
+                target_entities.append(ent.entity_id)
+                continue
+            # Fallback: string matching on entity_id / unique_id / original_name
             en = (ent.entity_id or "").lower()
             uid = (ent.unique_id or "").lower()
             name = (getattr(ent, "original_name", None) or "").lower()
@@ -379,7 +412,7 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
             entity_id,
         )
         return True
-    except Exception as ex:
+    except (TypeError, ValueError, KeyError, AttributeError) as ex:
         _LOGGER.debug(
             "better_thermostat %s: TRVZB maybe_set_external_temperature exception: %s",
             self.device_name,

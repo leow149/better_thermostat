@@ -1,0 +1,65 @@
+blueprint:
+  name: "Better Thermostat: Low TRV battery notification"
+  description: >
+    Sends a notification when any TRV associated with a Better Thermostat
+    device reports a battery level below the configured threshold.
+    Fires at most once per day per device to avoid notification spam.
+  domain: automation
+  source_url: https://github.com/KartoffelToby/better_thermostat/blob/master/blueprints/battery_low_notify.yaml
+  input:
+    thermostat_device:
+      name: Better Thermostat device
+      description: The Better Thermostat device to monitor.
+      selector:
+        device:
+          integration: better_thermostat
+
+    battery_threshold:
+      name: Battery threshold (%)
+      description: Trigger fires when the minimum TRV battery drops below this value.
+      default: 20
+      selector:
+        number:
+          min: 5
+          max: 50
+          step: 5
+          unit_of_measurement: "%"
+
+    notify_target:
+      name: Notification target
+      description: >
+        The notification service to call, e.g. `notify.mobile_app_my_phone`.
+      default: notify.notify
+      selector:
+        text: {}
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  - platform: device
+    domain: better_thermostat
+    device_id: !input thermostat_device
+    type: battery_low
+    below: !input battery_threshold
+    for:
+      minutes: 5
+
+condition:
+  # Throttle: only fire once every 24 hours per device
+  - condition: template
+    value_template: >
+      {% set last = state_attr('automation.' ~ this.entity_id | regex_replace('[^a-z0-9_]', '_'), 'last_triggered') %}
+      {{ last is none or (now() - last).total_seconds() > 86400 }}
+
+action:
+  - service: !input notify_target
+    data:
+      title: "Better Thermostat – Battery low"
+      message: >
+        🪫 {{ device_attr(trigger.device_id, 'name') }}: one or more TRV
+        batteries are below {{ battery_threshold }}%.
+        Please replace the batteries soon.
+
+variables:
+  battery_threshold: !input battery_threshold

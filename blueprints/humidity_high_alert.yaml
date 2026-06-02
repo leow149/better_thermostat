@@ -1,0 +1,83 @@
+blueprint:
+  name: "Better Thermostat: High humidity alert"
+  description: >
+    Fires when the humidity reported by a Better Thermostat device exceeds a
+    configurable threshold (default 60 %). You can choose to receive a
+    notification and/or trigger a ventilation switch.
+  domain: automation
+  source_url: https://github.com/KartoffelToby/better_thermostat/blob/master/blueprints/humidity_high_alert.yaml
+  input:
+    thermostat_device:
+      name: Better Thermostat device
+      description: The Better Thermostat device whose humidity sensor to monitor.
+      selector:
+        device:
+          integration: better_thermostat
+
+    humidity_threshold:
+      name: Humidity threshold (%)
+      description: Trigger fires when humidity rises above this value.
+      default: 60
+      selector:
+        number:
+          min: 30
+          max: 95
+          step: 1
+          unit_of_measurement: "%"
+
+    notify_target:
+      name: Notification target (optional)
+      description: >
+        Leave empty to skip notifications. Example: `notify.mobile_app_my_phone`.
+      default: ""
+      selector:
+        text: {}
+
+    ventilation_switch:
+      name: Ventilation switch (optional)
+      description: >
+        A switch entity to turn on when humidity is high (e.g. a fan or
+        ventilation relay). Leave empty to skip.
+      default: ""
+      selector:
+        entity:
+          domain: switch
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  - platform: device
+    domain: better_thermostat
+    device_id: !input thermostat_device
+    type: humidity_high
+    above: !input humidity_threshold
+    for:
+      minutes: 2
+
+condition: []
+
+action:
+  - if:
+      - condition: template
+        value_template: "{{ (notify_target | default('')) != '' }}"
+    then:
+      - service: !input notify_target
+        data:
+          title: "Better Thermostat – High humidity"
+          message: >
+            ⚠️ {{ device_attr(trigger.device_id, 'name') }} reports humidity
+            above {{ humidity_threshold }}%. Please ventilate the room.
+
+  - if:
+      - condition: template
+        value_template: "{{ (ventilation_switch | default('')) != '' }}"
+    then:
+      - service: switch.turn_on
+        target:
+          entity_id: !input ventilation_switch
+
+variables:
+  notify_target: !input notify_target
+  ventilation_switch: !input ventilation_switch
+  humidity_threshold: !input humidity_threshold

@@ -1,0 +1,154 @@
+blueprint:
+  name: "Better Thermostat: Away preset when nobody is home"
+  description: >
+    Automatically activates the Away preset on Better Thermostat devices when
+    no one is home, and restores the normal (None) preset when someone arrives.
+    Uses any combination of person entities, device trackers, or a binary
+    sensor (e.g. a group-based occupancy sensor) to determine presence.
+  domain: automation
+  source_url: https://github.com/KartoffelToby/better_thermostat/blob/master/blueprints/presence_away_preset.yaml
+  input:
+    thermostat_target:
+      name: Thermostats
+      description: One or more Better Thermostat devices or climate entities to control.
+      selector:
+        target:
+          device:
+            integration: better_thermostat
+          entity:
+            integration: better_thermostat
+            domain: climate
+
+    presence_entities:
+      name: Presence entities
+      description: >
+        One or more `person.*`, `device_tracker.*`, or `binary_sensor.*` entities
+        used to determine occupancy. The Away preset is activated when **all** of
+        them are in a non-home state (`not_home`, `away`, `off`).
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: person
+            - domain: device_tracker
+            - domain: binary_sensor
+
+    away_delay:
+      name: Delay before switching to Away (minutes)
+      description: >
+        Wait this long after the last person leaves before activating the Away
+        preset. Prevents short absences (e.g. walking the dog) from triggering
+        unnecessary heating changes.
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 120
+          step: 5
+          unit_of_measurement: min
+
+    home_preset:
+      name: Preset when home
+      description: Preset to restore when someone arrives home.
+      default: none
+      selector:
+        select:
+          options:
+            - none
+            - comfort
+            - eco
+            - boost
+            - home
+            - sleep
+            - activity
+
+    notify_target:
+      name: Notification target (optional)
+      description: >
+        Optional `notify.*` service for away/home notifications.
+        Leave empty to skip notifications.
+      default: ""
+      selector:
+        text: {}
+
+mode: single
+max_exceeded: silent
+
+variables:
+  notify_target: !input notify_target
+  presence_entities: !input presence_entities
+
+trigger:
+  - platform: state
+    entity_id: !input presence_entities
+    id: presence_changed
+
+condition: []
+
+action:
+  - variables:
+      # True when at least one entity is in a home/on state
+      anyone_home: >
+        {% set entities = presence_entities if presence_entities is iterable and
+           presence_entities is not string else [presence_entities] %}
+        {{ entities | map('states') | select('in', ['home', 'on']) | list | count > 0 }}
+
+  - choose:
+      # ── Nobody home → Away preset ──────────────────────────────────────────
+      - conditions:
+          - condition: template
+            value_template: "{{ not anyone_home }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ away_delay | int(0) > 0 }}"
+            then:
+              - delay:
+                  minutes: !input away_delay
+              # Re-check after delay – someone may have returned
+              - variables:
+                  anyone_home_recheck: >
+                    {% set entities = presence_entities if presence_entities is iterable
+                       and presence_entities is not string else [presence_entities] %}
+                    {{ entities | map('states') | select('in', ['home', 'on']) | list | count > 0 }}
+              - condition: template
+                value_template: "{{ not anyone_home_recheck }}"
+
+          - service: climate.set_preset_mode
+            data:
+              preset_mode: away
+            target: !input thermostat_target
+
+          - if:
+              - condition: template
+                value_template: "{{ notify_target != '' }}"
+            then:
+              - service: !input notify_target
+                data:
+                  title: "Better Thermostat – Away mode"
+                  message: "🏠 Nobody home – thermostats switched to Away preset."
+
+      # ── Someone home → restore preset ─────────────────────────────────────
+      - conditions:
+          - condition: template
+            value_template: "{{ anyone_home }}"
+        sequence:
+          - service: climate.set_preset_mode
+            data:
+              preset_mode: !input home_preset
+            target: !input thermostat_target
+
+          - if:
+              - condition: template
+                value_template: "{{ notify_target != '' }}"
+            then:
+              - service: !input notify_target
+                data:
+                  title: "Better Thermostat – Welcome home"
+                  message: >
+                    👋 Someone arrived – thermostats restored to
+                    '{{ home_preset }}' preset.
+
+variables:
+  away_delay: !input away_delay
+  home_preset: !input home_preset
