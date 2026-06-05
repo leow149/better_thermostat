@@ -46,7 +46,7 @@ blueprint:
       description: >
         A switch entity to turn on when humidity is high (e.g. a fan or
         ventilation relay).
-      default: switch.bt_dummy
+      default: ""
       selector:
         entity:
           domain: switch
