@@ -22,7 +22,10 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
 )
-from custom_components.better_thermostat.utils.helpers import convert_to_float
+from custom_components.better_thermostat.utils.helpers import (
+    attr_to_celsius,
+    convert_to_float,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -410,10 +413,8 @@ async def control_trv(self, heater_entity_id=None):
             self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
             return True
 
-        _current_set_temperature = convert_to_float(
-            str(_trv.attributes.get("temperature", None)),
-            self.device_name,
-            "controlling()",
+        _current_set_temperature = attr_to_celsius(
+            self, _trv, "temperature", None, "controlling()"
         )
 
         _remapped_states = convert_outbound_states(
@@ -716,10 +717,8 @@ async def check_target_temperature(self, heater_entity_id=None):
                 heater_entity_id,
             )
             break
-        _current_set_temperature = convert_to_float(
-            str(_trv_state.attributes.get("temperature", None)),
-            self.device_name,
-            "check_target_temperature()",
+        _current_set_temperature = attr_to_celsius(
+            self, _trv_state, "temperature", None, "check_target_temperature()"
         )
         if _timeout == 0:
             _LOGGER.debug(
