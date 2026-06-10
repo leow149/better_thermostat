@@ -3,7 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Einrichtung von Better Thermostat mit Home Assistant",
+        "description": "Einrichtung von Better Thermostat mit Home Assistant\n\n**Detaillierte Infos:**  https://better-thermostat.org/setup/configuration-walkthrough/",
         "data": {
           "name": "Name",
           "thermostat": "Das reale Thermostat",
@@ -25,7 +25,7 @@
         }
       },
       "advanced": {
-        "description": "Einstellungen für {trv}",
+        "description": "Einstellungen für {trv}\n\n**Detaillierte Infos:**  https://better-thermostat.org/setup/configuration-walkthrough/",
         "data": {
           "protect_overheating": "Überhitzung verhindern?",
           "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
