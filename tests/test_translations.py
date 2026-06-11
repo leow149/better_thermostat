@@ -14,6 +14,20 @@ LANGUAGES = sorted(p.stem for p in TRANSLATIONS.glob("*.json") if p.stem != "en"
 
 
 def _flatten(obj: dict, prefix: str = "") -> dict[str, str]:
+    """Flatten nested dict values into dotted-key paths.
+
+    Parameters
+    ----------
+    obj : dict
+        Mapping to flatten.
+    prefix : str
+        Prefix for generated dotted paths.
+
+    Returns
+    -------
+    dict[str, str]
+        Flattened mapping where nested keys are represented as dotted paths.
+    """
     flat: dict[str, str] = {}
     for key, value in obj.items():
         path = f"{prefix}.{key}" if prefix else key
@@ -25,10 +39,34 @@ def _flatten(obj: dict, prefix: str = "") -> dict[str, str]:
 
 
 def _load(path: Path) -> dict[str, str]:
+    """Load a JSON file and flatten it into dotted-key paths.
+
+    Parameters
+    ----------
+    path : Path
+        JSON file path to read.
+
+    Returns
+    -------
+    dict[str, str]
+        Flattened JSON mapping for translation key comparisons.
+    """
     return _flatten(json.loads(path.read_text(encoding="utf-8")))
 
 
 def _placeholders(text: str) -> list[str]:
+    """Return sorted placeholder tokens found in a string.
+
+    Parameters
+    ----------
+    text : str
+        Input text that may contain placeholders such as ``{name}``.
+
+    Returns
+    -------
+    list[str]
+        Sorted placeholder tokens extracted from the text.
+    """
     return sorted(re.findall(r"\{[^}]*\}", text))
 
 

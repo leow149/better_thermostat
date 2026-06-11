@@ -1,7 +1,7 @@
 ---
 title: Missing entity
 description: What the "related entity is missing" repair issue means and how to fix it.
-slug: qanda/missing_entity
+slug: faq/missing-entity
 ---
 
 Better Thermostat raises a **missing entity** repair issue when one of
