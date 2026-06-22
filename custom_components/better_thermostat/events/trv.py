@@ -84,6 +84,13 @@ async def trigger_trv_change(self, event):
             entity_id,
         )
         return
+    if entity_id not in self.real_trvs:
+        _LOGGER.debug(
+            "better_thermostat %s: TRV %s is no longer tracked, skipping",
+            self.device_name,
+            entity_id,
+        )
+        return
 
     if _org_trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
         # The device is gone; its last internal temperature must not
