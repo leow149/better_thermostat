@@ -6,13 +6,14 @@ small shim functions that delegate into the model-specific implementations.
 
 import logging
 import re
+from types import ModuleType
 
 from homeassistant.helpers.importlib import async_import_module
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def load_model_quirks(self, model, entity_id):
+async def load_model_quirks(self, model, entity_id) -> ModuleType:
     """Load model quirks module for a given TRV model, falling back to default.
 
     Adds explicit debug logs for both success and fallback paths to make it
