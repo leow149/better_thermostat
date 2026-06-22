@@ -14,7 +14,6 @@ import logging
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers import issue_registry as ir
-from homeassistant.util import dt as dt_util
 
 DOMAIN = "better_thermostat"
 _LOGGER = logging.getLogger(__name__)
@@ -361,7 +360,7 @@ async def check_and_update_degraded_mode(self) -> bool:
     self.unavailable_sensors = unavailable
 
     grace_until = getattr(self, "_degraded_grace_until", None)
-    in_grace = grace_until is not None and dt_util.now() < grace_until
+    in_grace = grace_until is not None and self.clock.now() < grace_until
     has_warned = getattr(self, "_degraded_warning_emitted", False)
 
     if self.degraded_mode and not has_warned and not in_grace:
