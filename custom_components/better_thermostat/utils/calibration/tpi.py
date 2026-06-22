@@ -13,6 +13,8 @@ import math
 from time import monotonic
 from typing import Any
 
+from .types import CalibrationHost
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -209,7 +211,7 @@ def _finalize_output(
     return TpiOutput(duty_cycle_pct=duty_pct, debug=debug), state
 
 
-def build_tpi_key(bt, entity_id: str) -> str:
+def build_tpi_key(bt: CalibrationHost, entity_id: str) -> str:
     """Return a stable key for TPI state tracking (similar to MPC)."""
 
     try:
