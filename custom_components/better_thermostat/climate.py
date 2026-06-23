@@ -1698,6 +1698,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def _finalize_startup(self) -> None:
         """Run post-init tasks: triggers, listeners, periodic jobs."""
+        # Likewise give critical (TRV) entities a short grace before raising
+        # ``missing_entity`` repairs; cloud-backed valves (Tado, etc.) can lag
+        # behind HA startup and would otherwise produce dismissable noise.
+        self._critical_grace_until = dt_util.now() + STARTUP_CRITICAL_GRACE_PERIOD
         _LOGGER.debug("better_thermostat %s: triggering time...", self.device_name)
         await self._trigger_time(None)
         _LOGGER.debug(
@@ -1746,10 +1750,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # logged at DEBUG and the HA repair issue is deferred — slow cloud
         # integrations get time to come online before the user sees a warning.
         self._degraded_grace_until = dt_util.now() + STARTUP_DEGRADED_GRACE_PERIOD
-        # Likewise give critical (TRV) entities a short grace before raising
-        # ``missing_entity`` repairs; cloud-backed valves (Tado, etc.) can lag
-        # behind HA startup and would otherwise produce dismissable noise.
-        self._critical_grace_until = dt_util.now() + STARTUP_CRITICAL_GRACE_PERIOD
         await await_optional_sensors(self)
         await check_and_update_degraded_mode(self)
 

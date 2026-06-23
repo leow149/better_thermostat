@@ -81,7 +81,7 @@ async def init(self, entity_id):
         # Some TRVs (e.g. proportional Tuya models) expose ``preset_modes`` but
         # do not accept arbitrary values, so calling the service with an
         # unsupported mode raises ``ServiceValidationError`` and trips the
-        # startup retry loop. See issue: preset mode "manual" not valid.
+        # startup retry loop.
         if _preset_modes and PRESET_NONE in _preset_modes:
             await self.hass.services.async_call(
                 "climate",
