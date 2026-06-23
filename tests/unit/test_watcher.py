@@ -49,6 +49,7 @@ def mock_bt_instance(mock_hass):
     bt.unavailable_sensors = []
     bt._degraded_grace_until = None
     bt._degraded_warning_emitted = False
+    bt._critical_grace_until = None
     return bt
 
 
@@ -238,6 +239,126 @@ class TestCheckCriticalEntities:
 
         assert result is False
         assert len(mock_bt_instance.devices_errors) > 0
+
+    @pytest.mark.anyio
+    async def test_no_issue_during_grace_period(self, mock_bt_instance):
+        """Unavailable TRV during startup grace does not raise a repair issue."""
+        from datetime import timedelta
+
+        from homeassistant.util import dt as dt_util
+
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        mock_state = MagicMock()
+        mock_state.state = "unavailable"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance._critical_grace_until = dt_util.now() + timedelta(minutes=2)
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            result = await check_critical_entities(mock_bt_instance)
+
+        assert result is False
+        assert len(mock_bt_instance.devices_errors) == 0
+        assert not mock_ir.async_create_issue.called
+
+    @pytest.mark.anyio
+    async def test_issue_after_grace_expires(self, mock_bt_instance):
+        """Unavailable TRV after grace expiry raises a repair issue."""
+        from datetime import timedelta
+
+        from homeassistant.util import dt as dt_util
+
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        mock_state = MagicMock()
+        mock_state.state = "unavailable"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+        # Grace expired one minute ago
+        mock_bt_instance._critical_grace_until = dt_util.now() - timedelta(minutes=1)
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            result = await check_critical_entities(mock_bt_instance)
+
+        assert result is False
+        assert len(mock_bt_instance.devices_errors) > 0
+        assert mock_ir.async_create_issue.called
+
+    @pytest.mark.anyio
+    async def test_auto_clear_issue_on_recovery(self, mock_bt_instance):
+        """Issue is cleared when a previously-unavailable TRV becomes available."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        mock_state = MagicMock()
+        mock_state.state = "heat"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+        # Simulate a previously raised error
+        mock_bt_instance.devices_errors = ["climate.trv_1", "climate.trv_2"]
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            result = await check_critical_entities(mock_bt_instance)
+
+        assert result is True
+        assert len(mock_bt_instance.devices_errors) == 0
+        # Issue must be deleted for each recovered TRV
+        assert mock_ir.async_delete_issue.call_count == 2
+
+    @pytest.mark.anyio
+    async def test_clears_stale_issue_even_without_devices_errors(
+        self, mock_bt_instance
+    ):
+        """A stale issue is cleared even when entity was never tracked as errored."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        mock_state = MagicMock()
+        mock_state.state = "heat"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.devices_errors = []
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            result = await check_critical_entities(mock_bt_instance)
+
+        assert result is True
+        # delete is called idempotently for every available entity
+        assert mock_ir.async_delete_issue.call_count == 2
+
+    @pytest.mark.anyio
+    async def test_partial_unavailability_clears_available(self, mock_bt_instance):
+        """Available TRVs are processed even when another TRV is unavailable."""
+        from datetime import timedelta
+
+        from homeassistant.util import dt as dt_util
+
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        def mock_get(entity_id):
+            state = MagicMock()
+            state.state = "unavailable" if entity_id == "climate.trv_1" else "heat"
+            return state
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
+        mock_bt_instance._critical_grace_until = dt_util.now() - timedelta(minutes=1)
+        mock_bt_instance.devices_errors = ["climate.trv_2"]
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            result = await check_critical_entities(mock_bt_instance)
+
+        assert result is False
+        # trv_1 (unavailable) added to errors and issue created
+        assert "climate.trv_1" in mock_bt_instance.devices_errors
+        # trv_2 (available) recovered — removed from errors and issue deleted
+        assert "climate.trv_2" not in mock_bt_instance.devices_errors
+        assert mock_ir.async_create_issue.called
+        assert mock_ir.async_delete_issue.called
 
 
 class TestCheckAndUpdateDegradedMode:

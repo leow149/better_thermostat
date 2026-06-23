@@ -155,6 +155,7 @@ from .utils.valve_maintenance import (
     run_valve_maintenance,
 )
 from .utils.watcher import (
+    STARTUP_CRITICAL_GRACE_PERIOD,
     STARTUP_DEGRADED_GRACE_PERIOD,
     await_optional_sensors,
     check_and_update_degraded_mode,
@@ -437,7 +438,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         parsed_off,
                     )
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 _LOGGER.warning(
                     "better_thermostat %s: invalid off_temperature '%s', ignoring",
                     self.device_name,
@@ -449,7 +450,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.tolerance = float(tolerance) if tolerance is not None else 0.0
             if unit == UnitOfTemperature.FAHRENHEIT:
                 self.tolerance = self.tolerance * 5.0 / 9.0
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             _LOGGER.warning(
                 "better_thermostat %s: invalid tolerance '%s', falling back to 0.0",
                 self.device_name,
@@ -887,13 +888,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             self.device_name,
                             trv_id,
                         )
-                except OSError, RuntimeError, AttributeError, TypeError:
+                except (OSError, RuntimeError, AttributeError, TypeError):
                     _LOGGER.debug(
                         "better_thermostat %s: external_temperature keepalive write failed for %s (non critical)",
                         self.device_name,
                         trv_id,
                     )
-        except OSError, RuntimeError, AttributeError, TypeError:
+        except (OSError, RuntimeError, AttributeError, TypeError):
             _LOGGER.debug(
                 "better_thermostat %s: external_temperature keepalive encountered an error",
                 self.device_name,
@@ -982,6 +983,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def startup(self) -> None:
         """Orchestrate entity startup."""
+        # Start the critical-entity grace window at the very beginning so that
+        # any availability check fired during the startup loop (or shortly
+        # after) does not raise a premature ``missing_entity`` repair for a
+        # slow-to-load underlying integration. The window is re-anchored in
+        # ``_finalize_startup`` to cover post-startup reconnection blips.
+        self._critical_grace_until = dt_util.now() + STARTUP_CRITICAL_GRACE_PERIOD
         while self.startup_running:
             _LOGGER.info(
                 "better_thermostat %s: Starting version %s. Waiting for entity to be ready...",
@@ -1302,7 +1309,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         _restored_ema,
                     )
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     pass
 
             # Restore temp_slope if available
@@ -1315,7 +1322,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         _restored_slope,
                     )
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     pass
 
             _LOGGER.debug(
@@ -1739,6 +1746,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # logged at DEBUG and the HA repair issue is deferred — slow cloud
         # integrations get time to come online before the user sees a warning.
         self._degraded_grace_until = dt_util.now() + STARTUP_DEGRADED_GRACE_PERIOD
+        # Likewise give critical (TRV) entities a short grace before raising
+        # ``missing_entity`` repairs; cloud-backed valves (Tado, etc.) can lag
+        # behind HA startup and would otherwise produce dismissable noise.
+        self._critical_grace_until = dt_util.now() + STARTUP_CRITICAL_GRACE_PERIOD
         await await_optional_sensors(self)
         await check_and_update_degraded_mode(self)
 
@@ -1991,7 +2002,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv_id in trvs:
                 try:
                     self.real_trvs[trv_id].ignore_trv_states = True
-                except KeyError, TypeError:
+                except (KeyError, TypeError):
                     pass
 
             # Build snapshots (skips TRVs with state=None)
@@ -2005,7 +2016,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if trv_id not in serviced_ids:
                     try:
                         self.real_trvs[trv_id].ignore_trv_states = False
-                    except KeyError, TypeError:
+                    except (KeyError, TypeError):
                         pass
 
             # Bind adapter callbacks to self
@@ -2042,7 +2053,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv_id in serviced_ids:
                 try:
                     self.real_trvs[trv_id].ignore_trv_states = False
-                except KeyError, TypeError:
+                except (KeyError, TypeError):
                     pass
 
             # Schedule next run
@@ -2895,7 +2906,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     def _bucket(temp):
                         try:
                             return format_bucket(round_to_bucket(temp))
-                        except TypeError, ValueError:
+                        except (TypeError, ValueError):
                             return None
 
                     # Build list of candidate buckets: current and ±0.5°C neighbors
@@ -2911,7 +2922,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             ]
                         elif bucket_tag:
                             buckets = [bucket_tag]
-                    except TypeError, ValueError:
+                    except (TypeError, ValueError):
                         if bucket_tag:
                             buckets = [bucket_tag]
                     uid = resolve_unique_id(self)
