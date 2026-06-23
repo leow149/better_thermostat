@@ -309,7 +309,7 @@ async def trigger_trv_change(self, event):
         _step_raw = trv.target_temp_step or self.bt_target_temp_step or 0.5
         try:
             _step = float(_step_raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             _step = 0.5
         if _step <= 0:
             _step = 0.5
