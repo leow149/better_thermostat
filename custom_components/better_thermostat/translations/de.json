@@ -48,7 +48,7 @@
       }
     },
     "error": {
-      "failed": "Ups, hier stimmt was nicht.",
+      "failed": "Ups, hier stimmt was nicht!",
       "no_name": "Du musst einen Namen vergeben.",
       "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen.",
       "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",
