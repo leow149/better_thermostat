@@ -4,6 +4,8 @@ These helpers implement safe no-op defaults for devices that do not
 require specific quirks.
 """
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.components.lock import LockState

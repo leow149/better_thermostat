@@ -102,8 +102,13 @@ from .utils.const import (
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
+    DEFAULT_MAX_TEMP,
+    DEFAULT_MIN_TEMP,
+    DEFAULT_TARGET_TEMP,
+    DOMAIN,
     SERVICE_RESET_HEATING_POWER,
     SERVICE_RESET_PID_LEARNINGS,
+    SERVICE_RUN_VALVE_MAINTENANCE,
     SUPPORT_FLAGS,
     VERSION,
     CalibrationMode,
@@ -165,12 +170,11 @@ from .utils.watcher import (
 from .utils.weather import check_ambient_air_temperature, check_weather
 
 _LOGGER = logging.getLogger(__name__)
-DOMAIN = "better_thermostat"
 
 # Default temperature when no sensor data is available (last resort fallback)
 DEFAULT_FALLBACK_TEMPERATURE = 20.0
 
-# Signal für dynamische Entity-Updates
+# Signal for dynamic entity updates
 SIGNAL_BT_CONFIG_CHANGED = "bt_config_changed_{}"
 
 
@@ -218,7 +222,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         SERVICE_RESET_HEATING_POWER, {}, "reset_heating_power"
     )
     platform.async_register_entity_service(
-        "run_valve_maintenance", {}, "run_valve_maintenance_service"
+        SERVICE_RUN_VALVE_MAINTENANCE, {}, "run_valve_maintenance_service"
     )
     platform.async_register_entity_service(
         SERVICE_RESET_PID_LEARNINGS,
@@ -269,7 +273,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._heating_tracker.reset_power()
         self.async_write_ha_state()
 
-    # ------------------------------------------------------------------
     # Thermal tracker properties
     # Used by: extra_state_attributes, helpers.py, sensor.py,
     #          _restore_state, _hydrate_thermal_from_state,
@@ -280,7 +283,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     #   - heat_loss_rate: only used within climate.py
     #   - heating_power + heat_loss_rate: keep until sensor.py generic
     #     attribute mapping (_climate_attr) is refactored
-    # ------------------------------------------------------------------
 
     @property
     def heating_power(self) -> float:
@@ -492,9 +494,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             and unit == UnitOfTemperature.FAHRENHEIT
         ):
             self.bt_target_temp_step = round(self.bt_target_temp_step * 5.0 / 9.0, 4)
-        self.bt_min_temp: float | None = 0.0
-        self.bt_max_temp: float | None = 30.0
-        self.bt_target_temp = 5.0
+        self.bt_min_temp: float | None = DEFAULT_MIN_TEMP
+        self.bt_max_temp: float | None = DEFAULT_MAX_TEMP
+        self.bt_target_temp = DEFAULT_TARGET_TEMP
         self.bt_target_cooltemp = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
         self.bt_hvac_mode: HVACMode | None = None
@@ -845,9 +847,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 return
 
-            # Verwende die bekannten TRV-Entity-IDs (Keys in real_trvs)
+            # Use the known TRV entity IDs (keys in real_trvs)
             trv_ids = list(self.real_trvs.keys())
-            # Fallback (sollte i.d.R. nicht benötigt werden)
+            # Fallback (should usually not be needed)
             if not trv_ids and hasattr(self, "entity_ids"):
                 trv_ids = list(self.entity_ids or [])
             if not trv_ids:
@@ -1782,7 +1784,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
         )
 
-        # Periodischer 5-Minuten-Tick: nur aktivieren, wenn Balance konfiguriert ist
+        # Periodic 5-minute tick: only enable when balance is configured
         balance_modes = {"heuristic", "pid"}
         active_balance_modes = set()
         active_calibration_modes = set()
@@ -1830,7 +1832,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.device_name,
             )
 
-            # Ventilwartung: separaten Tick nur aktivieren, wenn mindestens ein TRV sie eingeschaltet hat
+            # Valve maintenance: only enable a separate tick when at least one TRV has it turned on
             try:
                 maint_trvs = collect_maintenance_trvs(self.real_trvs)
             except Exception:
@@ -1892,7 +1894,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.hass, [self.outdoor_sensor], self._trigger_outdoor_change
                 )
             )
-        # Sende initial sofort einen Keepalive, damit TRVs nicht bis zum ersten 30min-Tick warten müssen
+        # Send an initial keepalive immediately so TRVs do not have to wait until the first 30min tick
         try:
             _LOGGER.debug(
                 "better_thermostat %s: creating keepalive task...", self.device_name

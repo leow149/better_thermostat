@@ -1,5 +1,7 @@
 """Config flow for Better Thermostat."""
 
+from __future__ import annotations
+
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 import copy
@@ -649,8 +651,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 18
 
-    CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
-
     def __init__(self):
         """Initialize the config flow."""
         self.device_name = ""
@@ -1077,7 +1077,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             advanced = trv.get("advanced", {})
             calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
             if calibration_mode:
-                # Konvertiere String zu Enum falls nötig
+                # Convert string to enum if needed
                 if isinstance(calibration_mode, str):
                     try:
                         calibration_mode = CalibrationMode(calibration_mode)

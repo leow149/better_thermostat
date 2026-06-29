@@ -232,7 +232,7 @@ def compute_pid(
     if dt <= 0 or dt < 1.0:
         dt = 1.0
 
-    # Initialisiere lernende Gains (einmalig) mit übergebenen Params
+    # Initialize learning gains (once) with the provided params
     if st.pid_kp is None:
         st.pid_kp = params.kp
     if st.pid_ki is None:
@@ -256,7 +256,7 @@ def compute_pid(
             # Use effective current temperature (EMA) for derivative
             meas_now = current_temp
             if meas_now is not None:
-                # EMA-Glättung nur für den D-Kanal
+                # EMA smoothing only for the D channel
                 try:
                     a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
                 except TypeError, ValueError:
@@ -268,14 +268,14 @@ def compute_pid(
                 if prev is not None:
                     d_meas = (smoothed - prev) / dt
                     d_term = -float(st.pid_kd) * d_meas
-                # Update des gespeicherten (geglätteten) Messwerts erfolgt nach u-Berechnung unten
-    # Derivative on error (benötigt letzten Fehler – approximiert über letzten Messwert)
+                # The stored (smoothed) measurement is updated after the u calculation below
+    # Derivative on error (needs the last error – approximated via the last measurement)
     elif dt > 0 and st.pid_last_meas is not None:
         last_e = inp_target_temp_C - st.pid_last_meas
         d_err = (e - last_e) / dt
         d_term = float(st.pid_kd) * d_err
 
-    # Aktualisiere die Slope-EMA auch im PID-Modus (für Logging/Diagnose)
+    # Update the slope EMA also in PID mode (for logging/diagnostics)
     try:
         s_in = inp_temp_slope_K_per_min
         if s_in is not None:
@@ -289,21 +289,21 @@ def compute_pid(
     # Proportionalterm
     p_term = float(st.pid_kp) * e
 
-    # Konditionales Anti-Windup: nur integrieren, wenn nicht gesättigt
+    # Conditional anti-windup: only integrate when not saturated
     aw_blocked = False
     i_relief = False
     i_prev = st.pid_integral
     i_prop = i_prev
     if dt > 0:
-        # Vorschlag für Integrator-Update (vorläufig)
+        # Proposal for the integrator update (preliminary)
         i_prop = i_prev + float(st.pid_ki) * e * dt
-        # Klammern
+        # Clamp
         i_prop = max(params.i_min, min(params.i_max, i_prop))
-        # Vorläufige Stellgröße ohne Sättigung prüfen
+        # Check the preliminary control value without saturation
         u_prop = p_term + i_prop + d_term
-        # Gesättigte Stellgröße
+        # Saturated control value
         u_sat = max(0.0, min(max_opening, u_prop))
-        # Falls gesättigt und Fehler die Sättigung verstärken würde → Integration blockieren
+        # If saturated and the error would increase the saturation → block integration
         if (u_prop > u_sat and e > 0) or (u_prop < u_sat and e < 0):
             i_term = i_prev
             aw_blocked = True
@@ -312,9 +312,9 @@ def compute_pid(
     else:
         i_term = i_prev
 
-    # Integrator-Entlastung nahe Soll: Wenn sich das Vorzeichen des Fehlers ändert
-    # und wir innerhalb der near-Band sind, reduziere den Integrator leicht,
-    # damit früher geöffnet/geschlossen wird.
+    # Integrator relief near setpoint: When the sign of the error changes
+    # and we are within the near band, reduce the integrator slightly,
+    # so that it opens/closes earlier.
     try:
         cur_sign = 1 if e > 0 else (-1 if e < 0 else 0)
         if (
@@ -322,15 +322,15 @@ def compute_pid(
             and cur_sign not in (0, st.last_error_sign)
             and abs(delta_T or 0.0) <= params.steady_state_band_K
         ):
-            decay = 0.8  # 20% Entlastung
+            decay = 0.8  # 20% relief
             i_term *= decay
             i_relief = True
     except Exception:
         pass
 
-    # Endgültige Stellgröße
+    # Final control value
     u = p_term + i_term + d_term  # PID
-    # Integrator-Zustand nur übernehmen, wenn nicht blockiert
+    # Only adopt the integrator state when not blocked
     if not aw_blocked:
         st.pid_integral = i_term
 
@@ -382,7 +382,7 @@ def compute_pid(
     # Update last_percent
     st.last_percent = percent
 
-    # PID-States aktualisieren (für D-Anteil Messwert speichern)
+    # Update PID states (store the measurement for the D term)
     if params.d_on_measurement:
         base = current_temp
         try:
@@ -396,21 +396,21 @@ def compute_pid(
         st.pid_last_meas = current_temp
     st.pid_last_time = now
 
-    # Fehler-Vorzeichen für nächsten Zyklus merken
+    # Remember the error sign for the next cycle
     try:
         st.last_error_sign = 1 if e > 0 else (-1 if e < 0 else 0)
     except Exception:
         pass
 
-    # Optionales Auto-Tuning (konservativ)
+    # Optional auto-tuning (conservative)
     if params.auto_tune:
         _auto_tune_pid(
             params, st, percent, delta_T, inp_temp_slope_K_per_min or 0.0, now
         )
 
-    # Debug-Werte ablegen
+    # Store debug values
     try:
-        # Basale Debug-Infos (auch für Graphen)
+        # Basic debug info (also for graphs)
         pid_dbg = {
             "mode": "pid",
             "dt_s": _r(dt, 2),
@@ -422,10 +422,10 @@ def compute_pid(
             "kp": float(st.pid_kp) if st.pid_kp is not None else None,
             "ki": float(st.pid_ki) if st.pid_ki is not None else None,
             "kd": float(st.pid_kd) if st.pid_kd is not None else None,
-            # Anti-Windup-Indikator
+            # Anti-windup indicator
             "anti_windup_blocked": aw_blocked,
             "i_relief": i_relief,
-            # Slope (Input und EMA)
+            # Slope (input and EMA)
             "slope_in": _r(inp_temp_slope_K_per_min, 3),
             "slope_ema": _r(st.ema_slope, 3),
             # Messwerte
@@ -494,14 +494,14 @@ def _auto_tune_pid(
         ki = float(st.pid_ki or params.ki)
         kd = float(st.pid_kd or params.kd)
 
-        # 1) Overshoot → kp leicht runter, kd leicht rauf, ki leicht runter
+        # 1) Overshoot → kp slightly down, kd slightly up, ki slightly down
         if overshoot:
             kp = max(params.kp_min, kp * params.kp_step_mul)
             kd = min(params.kd_max, kd * params.kd_step_mul)
             ki = max(params.ki_min, ki * params.ki_step_mul_down)
             tuned = True
 
-        # 2) Trägheit: ΔT deutlich > band_near, aber Slope sehr klein -> Ki rauf, Kp rauf
+        # 2) Inertia: ΔT clearly > band_near, but slope very small -> Ki up, Kp up
         # Use EMA slope if available for more stable tuning
         check_slope = st.ema_slope if st.ema_slope is not None else slope
         if (
@@ -513,7 +513,7 @@ def _auto_tune_pid(
             kp = min(params.kp_max, max(params.kp_min, kp * params.kp_step_mul_up))
             tuned = True
 
-        # 3) Quasi stationär: |ΔT| < steady_state_band und geringe Stellgröße → Ki leicht runter
+        # 3) Quasi-stationary: |ΔT| < steady_state_band and low control value → Ki slightly down
         if abs(delta_T) < params.steady_state_band_K and percent < 20.0:
             ki = max(params.ki_min, min(params.ki_max, ki * params.ki_step_mul_down))
             tuned = True

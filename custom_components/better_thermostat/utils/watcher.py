@@ -9,6 +9,7 @@ outdoor, weather) can be unavailable without blocking thermostat operation.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 import logging
 
@@ -16,7 +17,8 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
-DOMAIN = "better_thermostat"
+from .const import DOMAIN
+
 _LOGGER = logging.getLogger(__name__)
 
 # Window after startup during which a transition into degraded mode is logged
@@ -292,8 +294,6 @@ async def await_optional_sensors(
         Entity IDs of optional sensors that are still unavailable after
         all retries have been exhausted (empty if all came online).
     """
-    import asyncio
-
     if _sleep is None:
         _sleep = asyncio.sleep
 

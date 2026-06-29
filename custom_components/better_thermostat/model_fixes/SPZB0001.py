@@ -4,6 +4,8 @@ Device-specific quirks for SPZB0001 thermostats handled by the
 Better Thermostat integration.
 """
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.helpers import entity_registry as er

@@ -44,17 +44,20 @@ from homeassistant.helpers.storage import Store
 from .calibration.mpc import MpcState
 from .calibration.pid import PIDState
 from .calibration.tpi import TpiState
-from .const import MAX_HEAT_LOSS, MAX_HEATING_POWER, MIN_HEAT_LOSS, MIN_HEATING_POWER
+from .const import (
+    DOMAIN,
+    MAX_HEAT_LOSS,
+    MAX_HEATING_POWER,
+    MIN_HEAT_LOSS,
+    MIN_HEATING_POWER,
+)
 from .thermal_learning import clamp
 
 _LOGGER = logging.getLogger(__name__)
 
-DOMAIN = "better_thermostat"
 CURRENT_VERSION = 1
 
-# ---------------------------------------------------------------------------
 # State dataclasses (only those NOT owned by a controller module)
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -81,9 +84,7 @@ class RuntimeState:
     presets: dict[str, float] = field(default_factory=dict)
 
 
-# ---------------------------------------------------------------------------
 # Serialization helpers
-# ---------------------------------------------------------------------------
 
 # Fields that should be coerced to int during deserialization.
 _INT_FIELDS = frozenset(
@@ -268,9 +269,7 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
     return state
 
 
-# ---------------------------------------------------------------------------
 # Migration
-# ---------------------------------------------------------------------------
 
 
 def _migrate_v0_to_v1(raw: dict[str, Any]) -> dict[str, Any]:
@@ -289,9 +288,7 @@ def _migrate_v0_to_v1(raw: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
-# ---------------------------------------------------------------------------
 # StateManager
-# ---------------------------------------------------------------------------
 
 
 class StateManager:

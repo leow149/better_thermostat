@@ -1,5 +1,7 @@
 """Better Thermostat Number Platform."""
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.components.climate.const import PRESET_NONE
@@ -20,13 +22,13 @@ from .utils.calibration.pid import (
 from .utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
+    DOMAIN,
     CalibrationMode,
     CalibrationType,
 )
 from .utils.helpers import convert_to_float_celsius
 
 _LOGGER = logging.getLogger(__name__)
-DOMAIN = "better_thermostat"
 
 
 async def async_setup_entry(

@@ -5,6 +5,8 @@ helper functions used by the Better Thermostat integration to read and
 convert thermostat states and prepare outbound payloads.
 """
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.components.climate.const import HVACMode
@@ -67,8 +69,6 @@ async def trigger_trv_change(self, event):
             entity_id,
         )
         return
-    # set context HACK TO FIND OUT IF AN EVENT WAS SEND BY BT
-
     # Check if the update is coming from the code
     if self.context == event.context:
         return
@@ -112,14 +112,14 @@ async def trigger_trv_change(self, event):
 
     child_lock = (trv.advanced or {}).get("child_lock")
 
-    # Dynamische Modell-Erkennung: nur einmalig (z. B. beim Start) – nicht bei jedem Event
+    # Dynamic model detection: only once (e.g. at startup) – not on every event
     try:
         prev_model = trv.model
         if not prev_model:
             if _org_trv_state is not None and isinstance(
                 _org_trv_state.attributes, dict
             ):
-                # Nur prüfen, wenn Hinweise vorhanden sind
+                # Only check if hints are present
                 if (
                     "model_id" in _org_trv_state.attributes
                     or "device" in _org_trv_state.attributes
@@ -213,7 +213,7 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    # hvac_action bedingungslos in den Cache schreiben (immer aktuell halten)
+    # Write hvac_action to the cache unconditionally (always keep it current)
     try:
         hvac_action_attr = _org_trv_state.attributes.get("hvac_action")
         if hvac_action_attr is None:
@@ -262,7 +262,7 @@ async def trigger_trv_change(self, event):
             ):
                 self.bt_hvac_mode = mapped_state
 
-    # Hinweis: Kein Caching von hvac_action mehr – BT liest direkt vom TRV-State in climate.py
+    # Note: No more caching of hvac_action – BT reads directly from the TRV state in climate.py
 
     _main_key = "temperature"
     if "temperature" not in old_state.attributes:
@@ -446,7 +446,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                 "better_thermostat %s: no calibration type found in device config, talking to the TRV using fallback mode",
                 self.device_name,
             )
-            # Fallback: keine lokale Kalibrierung durchführen, nur Solltemperatur setzen
+            # Fallback: do not perform local calibration, only set the target temperature
             _new_heating_setpoint = self.bt_target_temp
             _new_local_calibration = None
 

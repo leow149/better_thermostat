@@ -1,5 +1,7 @@
 """Better Thermostat Switch Platform."""
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.components.switch import SwitchEntity
@@ -17,10 +19,9 @@ from .utils.calibration.pid import (
     build_pid_key,
     resolve_unique_id,
 )
-from .utils.const import CONF_CALIBRATION_MODE, CalibrationMode
+from .utils.const import CONF_CALIBRATION_MODE, DOMAIN, CalibrationMode
 
 _LOGGER = logging.getLogger(__name__)
-DOMAIN = "better_thermostat"
 
 
 async def async_setup_entry(
@@ -169,7 +170,6 @@ class BetterThermostatChildLockSwitch(SwitchEntity, RestoreEntity):
         self._bt_climate = bt_climate
         self._trv_entity_id = trv_entity_id
         self._attr_unique_id = f"{bt_climate.unique_id}_{trv_entity_id}_child_lock"
-        self._attr_name = "Child Lock"
         if show_trv_name:
             trv_state = bt_climate.hass.states.get(trv_entity_id)
             trv_name = trv_state.name if trv_state and trv_state.name else trv_entity_id

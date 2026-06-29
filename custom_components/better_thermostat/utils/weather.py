@@ -1,5 +1,7 @@
 """Weather utils."""
 
+from __future__ import annotations
+
 from collections import deque
 from contextlib import suppress
 from datetime import datetime, timedelta

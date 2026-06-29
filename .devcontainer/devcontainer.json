@@ -4,7 +4,7 @@
   "name": "BETTER THERMOSTAT development",
   "initializeCommand": "/bin/mkdir -p ${localWorkspaceFolder}/.haconfig && /bin/cp ${localWorkspaceFolder}/.devcontainer/configuration.yaml ${localWorkspaceFolder}/.haconfig",
   // Provides uv (used by scripts/setup and the rest of the dev tooling) on top
-  // of the Microsoft Python image. Pinned to the v1 feature digest.
+  // of the Microsoft Python image. Pinned via version tag (digest in lockfile).
   "features": {
     "ghcr.io/va-h/devcontainers-features/uv:1.1.4": {}
   },
