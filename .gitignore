@@ -83,3 +83,4 @@ logs/
 node_modules
 
 .codebase-memory
+.serena
