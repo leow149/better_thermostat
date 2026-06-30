@@ -1,9 +1,9 @@
 """Device binding for Better Thermostat.
 
 Provides functions to discover all Better Thermostat instances and their
-connected TRV devices by cross-referencing HA's config entry, device, and
-entity registries. Each binding record shows the BT instance, its managed
-TRV, and the adapters/quirks wiring between them.
+connected TRV devices by reading config-entry data, the entity registry, and
+current state. Each binding record shows the BT instance, its managed TRV,
+integration type, model, calibration mode, registry entry, and state.
 """
 
 from __future__ import annotations

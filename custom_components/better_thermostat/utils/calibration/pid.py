@@ -61,6 +61,7 @@ class PIDState:
     # PID-State
     pid_integral: float = 0.0
     pid_last_meas: float | None = None
+    pid_last_error: float | None = None
     pid_last_time: float = 0.0
     pid_kp: float | None = None
     pid_ki: float | None = None
@@ -259,7 +260,7 @@ def compute_pid(
                 # EMA smoothing only for the D channel
                 try:
                     a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-                except TypeError, ValueError:
+                except (TypeError, ValueError):
                     a = 0.5
                 prev = st.pid_last_meas
                 smoothed = (
@@ -269,10 +270,9 @@ def compute_pid(
                     d_meas = (smoothed - prev) / dt
                     d_term = -float(st.pid_kd) * d_meas
                 # The stored (smoothed) measurement is updated after the u calculation below
-    # Derivative on error (needs the last error – approximated via the last measurement)
-    elif dt > 0 and st.pid_last_meas is not None:
-        last_e = inp_target_temp_C - st.pid_last_meas
-        d_err = (e - last_e) / dt
+    # Derivative on error (needs the last error)
+    elif dt > 0 and st.pid_last_error is not None:
+        d_err = (e - st.pid_last_error) / dt
         d_term = float(st.pid_kd) * d_err
 
     # Update the slope EMA also in PID mode (for logging/diagnostics)
@@ -319,6 +319,7 @@ def compute_pid(
         cur_sign = 1 if e > 0 else (-1 if e < 0 else 0)
         if (
             st.last_error_sign is not None
+            and st.last_error_sign != 0
             and cur_sign not in (0, st.last_error_sign)
             and abs(delta_T or 0.0) <= params.steady_state_band_K
         ):
@@ -387,13 +388,14 @@ def compute_pid(
         base = current_temp
         try:
             a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             a = 0.5
         if base is not None:
             prev = st.pid_last_meas
             st.pid_last_meas = base if prev is None else ((1.0 - a) * prev + a * base)
     else:
         st.pid_last_meas = current_temp
+        st.pid_last_error = e
     st.pid_last_time = now
 
     # Remember the error sign for the next cycle
@@ -523,7 +525,7 @@ def _auto_tune_pid(
             st.pid_ki = ki
             st.pid_kd = kd
             st.last_tune_ts = now_ts
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         # Best-effort: numerische Probleme ignorieren
         return
 

@@ -262,7 +262,7 @@ async def trigger_trv_change(self, event):
             ):
                 self.bt_hvac_mode = mapped_state
 
-    # Note: No more caching of hvac_action – BT reads directly from the TRV state in climate.py
+    # Better Thermostat reads hvac_action directly from the TRV state in climate.py
 
     _main_key = "temperature"
     if "temperature" not in old_state.attributes:
@@ -309,7 +309,7 @@ async def trigger_trv_change(self, event):
         _step_raw = trv.target_temp_step or self.bt_target_temp_step or 0.5
         try:
             _step = float(_step_raw)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             _step = 0.5
         if _step <= 0:
             _step = 0.5
