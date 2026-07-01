@@ -3,7 +3,11 @@
 import asyncio
 import logging
 
-from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
+from homeassistant.components.climate.const import (
+    PRESET_BOOST,
+    ClimateEntityFeature,
+    HVACMode,
+)
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.util.unit_conversion import TemperatureConverter
 
@@ -17,6 +21,7 @@ from custom_components.better_thermostat.adapters.delegate import (
 from custom_components.better_thermostat.events.trv import convert_outbound_states
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
+    override_set_temperature,
 )
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
@@ -625,7 +630,11 @@ async def control_trv(self, heater_entity_id=None):
                     _temperature,
                 )
                 self.real_trvs[heater_entity_id]["last_temperature"] = _temperature
-                await set_temperature(self, heater_entity_id, _temperature)
+                _trv_has_temp_quirk = await override_set_temperature(
+                    self, heater_entity_id, _temperature
+                )
+                if _trv_has_temp_quirk is False:
+                    await set_temperature(self, heater_entity_id, _temperature)
                 if self.real_trvs[heater_entity_id]["target_temp_received"] is True:
                     self.real_trvs[heater_entity_id]["target_temp_received"] = False
                     self.task_manager.create_task(
@@ -727,14 +736,20 @@ async def check_target_temperature(self, heater_entity_id=None):
                 heater_entity_id,
             )
             break
+        _supported_features = _trv_state.attributes.get("supported_features", 0)
+        _uses_range = bool(
+            _supported_features & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+        )
+        _temp_attr = "target_temp_low" if _uses_range else "temperature"
         _current_set_temperature = attr_to_celsius(
-            self, _trv_state, "temperature", None, "check_target_temperature()"
+            self, _trv_state, _temp_attr, None, "check_target_temperature()"
         )
         if _timeout == 0:
             _LOGGER.debug(
-                "better_thermostat %s: %s / check_target_temp / _last: %s - _current: %s",
+                "better_thermostat %s: %s / check_target_temp (%s) / _last: %s - _current: %s",
                 self.device_name,
                 heater_entity_id,
+                _temp_attr,
                 _real_trv["last_temperature"],
                 _current_set_temperature,
             )
@@ -747,11 +762,12 @@ async def check_target_temperature(self, heater_entity_id=None):
         if _timeout > 360:
             _LOGGER.warning(
                 "better_thermostat %s: TRV %s did not confirm the target temperature "
-                "after 360s (wrote=%s, last reported=%s); giving up and assuming applied",
+                "after 360s (wrote=%s, last reported=%s via %s); giving up and assuming applied",
                 self.device_name,
                 heater_entity_id,
                 _real_trv["last_temperature"],
                 _current_set_temperature,
+                _temp_attr,
             )
             _timeout = 0
             break
