@@ -69,6 +69,7 @@ async def trigger_trv_change(self, event):
             entity_id,
         )
         return
+
     # Check if the update is coming from the code
     if self.context == event.context:
         return
@@ -112,14 +113,14 @@ async def trigger_trv_change(self, event):
 
     child_lock = (trv.advanced or {}).get("child_lock")
 
-    # Dynamic model detection: only once (e.g. at startup) – not on every event
+    # Dynamic model detection: only once (e.g. at startup), not on every event
     try:
         prev_model = trv.model
         if not prev_model:
             if _org_trv_state is not None and isinstance(
                 _org_trv_state.attributes, dict
             ):
-                # Only check if hints are present
+                # Only check when there are hints available
                 if (
                     "model_id" in _org_trv_state.attributes
                     or "device" in _org_trv_state.attributes
@@ -213,7 +214,7 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    # Write hvac_action to the cache unconditionally (always keep it current)
+    # Always cache hvac_action from the TRV state so it stays current
     try:
         hvac_action_attr = _org_trv_state.attributes.get("hvac_action")
         if hvac_action_attr is None:
@@ -261,8 +262,6 @@ async def trigger_trv_change(self, event):
                 and trv.last_hvac_mode != _org_trv_state.state
             ):
                 self.bt_hvac_mode = mapped_state
-
-    # Better Thermostat reads hvac_action directly from the TRV state in climate.py
 
     _main_key = "temperature"
     if "temperature" not in old_state.attributes:
@@ -446,7 +445,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                 "better_thermostat %s: no calibration type found in device config, talking to the TRV using fallback mode",
                 self.device_name,
             )
-            # Fallback: do not perform local calibration, only set the target temperature
+            # Fallback: do not apply local calibration, only set the target temperature
             _new_heating_setpoint = self.bt_target_temp
             _new_local_calibration = None
 

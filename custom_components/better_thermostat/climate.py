@@ -66,7 +66,7 @@ from .events.cooler import trigger_cooler_change
 from .events.temperature import trigger_temperature_change
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
-from .model_fixes.model_quirks import inital_tweak, load_model_quirks
+from .model_fixes.model_quirks import initial_tweak, load_model_quirks
 from .trv import Trv
 from .utils.calibration.pid import (
     PIDParams,
@@ -162,6 +162,7 @@ from .utils.valve_maintenance import (
 from .utils.watcher import (
     STARTUP_CRITICAL_GRACE_PERIOD,
     STARTUP_DEGRADED_GRACE_PERIOD,
+    await_critical_entities,
     await_optional_sensors,
     check_and_update_degraded_mode,
     check_critical_entities,
@@ -277,12 +278,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     # Used by: extra_state_attributes, helpers.py, sensor.py,
     #          _restore_state, _hydrate_thermal_from_state,
     #          _record_thermal_to_state
-    # TODO: Eliminate most of these by accessing trackers directly.
-    #   - heating_power_normalized, last_heating_power_stats, heating_cycles,
-    #     last_heat_loss_stats, loss_cycles: only read by extra_state_attributes
-    #   - heat_loss_rate: only used within climate.py
-    #   - heating_power + heat_loss_rate: keep until sensor.py generic
-    #     attribute mapping (_climate_attr) is refactored
+    # ------------------------------------------------------------------
 
     @property
     def heating_power(self) -> float:
@@ -849,7 +845,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             # Use the known TRV entity IDs (keys in real_trvs)
             trv_ids = list(self.real_trvs.keys())
-            # Fallback (should usually not be needed)
+            # Fallback (normally should not be needed)
             if not trv_ids and hasattr(self, "entity_ids"):
                 trv_ids = list(self.entity_ids or [])
             if not trv_ids:
@@ -1559,7 +1555,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
 
             try:
-                await inital_tweak(self, trv)
+                await initial_tweak(self, trv)
             except Exception as exc:
                 _LOGGER.error(
                     "better_thermostat %s: Error running initial tweak for TRV %s: %s",
@@ -1704,6 +1700,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # ``missing_entity`` repairs; cloud-backed valves (Tado, etc.) can lag
         # behind HA startup and would otherwise produce dismissable noise.
         self._critical_grace_until = dt_util.now() + STARTUP_CRITICAL_GRACE_PERIOD
+        # Wait for critical entities (TRVs) with increasing retry delays before
+        # any startup path can raise a missing_entity repair issue.  Both
+        # _trigger_time and _trigger_check_weather below call
+        # check_critical_entities internally, so the retry must complete first.
+        # Cloud-backed valves (e.g. Tado) often initialise later than Home
+        # Assistant itself; without this wait a single immediate check reports a
+        # false-positive that lingers in the repair dashboard even after the
+        # valve comes online.
+        await await_critical_entities(self)
+        if self.is_removed:
+            return
+        _LOGGER.debug(
+            "better_thermostat %s: checking critical entities...", self.device_name
+        )
+        await check_critical_entities(self)
+
         _LOGGER.debug("better_thermostat %s: triggering time...", self.device_name)
         await self._trigger_time(None)
         _LOGGER.debug(
@@ -1740,11 +1752,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.async_on_remove(
                 async_track_time_change(self.hass, self._trigger_time, 5, 0, 0)
             )
-
-        _LOGGER.debug(
-            "better_thermostat %s: checking critical entities...", self.device_name
-        )
-        await check_critical_entities(self)
 
         # Wait for optional sensors with increasing retry delays before
         # entering degraded mode (see await_optional_sensors for details).
@@ -1894,7 +1901,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.hass, [self.outdoor_sensor], self._trigger_outdoor_change
                 )
             )
-        # Send an initial keepalive immediately so TRVs do not have to wait until the first 30min tick
+        # Send an immediate initial keepalive so TRVs don't have to wait for the first 30min tick
         try:
             _LOGGER.debug(
                 "better_thermostat %s: creating keepalive task...", self.device_name

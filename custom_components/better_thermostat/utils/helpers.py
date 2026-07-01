@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime
 import logging
 import math
@@ -32,6 +32,36 @@ from custom_components.better_thermostat.utils.const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def find_device_entity(
+    entity_registry: er.EntityRegistry,
+    device_id: str,
+    domains: Iterable[str],
+    keywords: Iterable[str],
+) -> str | None:
+    """Return the entity_id of the first matching entity on a device.
+
+    A match is any entity belonging to ``device_id`` whose domain is in
+    ``domains`` and whose name, unique_id or entity_id contains any of
+    ``keywords`` (case-insensitive). Returns ``None`` if nothing matches.
+    """
+    domains = tuple(domains)
+    keywords = tuple(k.lower() for k in keywords)
+    for ent in entity_registry.entities.values():
+        if ent.device_id != device_id or ent.domain not in domains:
+            continue
+        name = (getattr(ent, "original_name", "") or "").lower()
+        uid = (ent.unique_id or "").lower()
+        eid = (ent.entity_id or "").lower()
+
+        if (
+            any(k in name for k in keywords)
+            or any(k in uid for k in keywords)
+            or any(k in eid for k in keywords)
+        ):
+            return ent.entity_id
+    return None
 
 
 def normalize_calibration_mode(
@@ -208,6 +238,16 @@ def heating_power_valve_position(self, entity_id):
     Given the global `heating_power` estimate and the target/current
     temperature, a heuristic mapping to valve opening percentage is
     returned (between 0.0 and 1.0).
+
+    Examples (resulting valve_pos for a given temp_diff and heating_power):
+
+    | temp_diff | hp=0.02 | hp=0.01 | hp=0.005 |
+    |-----------|---------|---------|----------|
+    | 0.1       | 0.0871  | 0.1678  | 0.3232   |
+    | 0.2       | 0.1678  | 0.3232  | 0.6227   |
+    | 0.3       | 0.2462  | 0.4744  | 0.9139   |
+    | 0.4       | 0.3232  | 0.6227  | 1.0000   |
+    | 0.5       | 0.3992  | 0.7691  | 1.0000   |
     """
     _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
 
@@ -260,34 +300,6 @@ def heating_power_valve_position(self, entity_id):
     )
     return valve_pos
 
-    # Example values for different heating_power and temp_diff:
-    # With heating_power of 0.02:
-    # | temp_diff | valve_pos  |
-    # |-----------|------------|
-    # | 0.1       | 0.0871     |
-    # | 0.2       | 0.1678     |
-    # | 0.3       | 0.2462     |
-    # | 0.4       | 0.3232     |
-    # | 0.5       | 0.3992     |
-
-    # With heating_power of 0.01:
-    # | temp_diff | valve_pos  |
-    # |-----------|------------|
-    # | 0.1       | 0.1678     |
-    # | 0.2       | 0.3232     |
-    # | 0.3       | 0.4744     |
-    # | 0.4       | 0.6227     |
-    # | 0.5       | 0.7691     |
-
-    # With heating_power of 0.005:
-    # | temp_diff | valve_pos  |
-    # |-----------|------------|
-    # | 0.1       | 0.3232     |
-    # | 0.2       | 0.6227     |
-    # | 0.3       | 0.9139     |
-    # | 0.4       | 1.0000     |
-    # | 0.5       | 1.0000     |
-
 
 def is_reasonable_temperature(value: float | None) -> bool:
     """Return ``True`` iff ``value`` is a plausible indoor temperature in °C.
@@ -326,8 +338,8 @@ def convert_to_float(
         return None
     try:
         # Use 0.01 step (2 decimal places) to preserve sensor precision.
-        # Rounding to 0.1 caused issues where 19.97 became 20.0, leading to
-        # incorrect HVAC action decisions (see issues #1792, #1789, #1785).
+        # Rounding to 0.1 can turn 19.97 into 20.0, leading to incorrect
+        # HVAC action decisions.
         return round_by_step(float(value), 0.01)
     except ValueError, TypeError, AttributeError, KeyError:
         _LOGGER.debug(

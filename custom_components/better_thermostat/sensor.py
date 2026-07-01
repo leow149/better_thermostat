@@ -122,7 +122,7 @@ async def _setup_algorithm_sensors(
         ]
         algorithm_sensors.extend(mpc_sensors)
 
-        # Tracking for active MPC entities
+        # Track active MPC entities
         if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
             _ACTIVE_ALGORITHM_ENTITIES[entry_id] = {}
         _ACTIVE_ALGORITHM_ENTITIES[entry_id][CalibrationMode.MPC_CALIBRATION] = [
@@ -138,11 +138,6 @@ async def _setup_algorithm_sensors(
             bt_climate.device_name,
             entry_id,
         )
-
-    # TODO: Additional algorithms can be added here
-    # if CalibrationMode.PID_CALIBRATION in current_algorithms:
-    #     pid_sensors = [...]
-    #     algorithm_sensors.extend(pid_sensors)
 
     return algorithm_sensors
 
@@ -230,7 +225,7 @@ async def _cleanup_stale_algorithm_entities(
 
     for algorithm, entity_unique_ids in tracked_algorithms.items():
         if algorithm not in current_algorithms:
-            # This algorithm is no longer active - remove entities
+            # This algorithm is no longer active - remove its entities
             removed_count = 0
             for entity_unique_id in entity_unique_ids:
                 entity_id = entity_registry.async_get_entity_id(
@@ -266,11 +261,11 @@ async def _cleanup_stale_algorithm_entities(
             if removed_count == len(entity_unique_ids):
                 algorithms_to_remove.append(algorithm)
 
-    # Cleanup tracking for removed algorithms
+    # Clean up tracking for removed algorithms
     for algorithm in algorithms_to_remove:
         del _ACTIVE_ALGORITHM_ENTITIES[entry_id][algorithm]
 
-    # Remove entry_id completely when no algorithms are tracked anymore
+    # Remove the entry_id entirely once no algorithms are tracked anymore
     if not _ACTIVE_ALGORITHM_ENTITIES[entry_id]:
         del _ACTIVE_ALGORITHM_ENTITIES[entry_id]
 
