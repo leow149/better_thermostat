@@ -3,11 +3,7 @@
 import asyncio
 import logging
 
-from homeassistant.components.climate.const import (
-    PRESET_BOOST,
-    ClimateEntityFeature,
-    HVACMode,
-)
+from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.util.unit_conversion import TemperatureConverter
 
@@ -30,6 +26,7 @@ from custom_components.better_thermostat.utils.const import (
 from custom_components.better_thermostat.utils.helpers import (
     attr_to_celsius,
     convert_to_float,
+    trv_supports_temperature_range,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -425,17 +422,26 @@ async def control_trv(self, heater_entity_id=None):
             self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
             return True
 
-        _supported_features = _trv.attributes.get("supported_features", 0)
-        _uses_range = bool(
-            _supported_features & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+        # Read both the single-setpoint and range-low attributes. We can't
+        # assume the range feature bit alone predicts which one a given
+        # write path actually updates -- a device may advertise
+        # TARGET_TEMPERATURE_RANGE but still only be driven via plain
+        # "temperature" if no model-specific quirk intercepts the write
+        # (see model_fixes). Accepting a match on either avoids getting
+        # stuck comparing against an attribute that never changes.
+        _current_set_temperature_single = attr_to_celsius(
+            self, _trv, "temperature", None, "controlling()"
         )
-        _current_set_temperature = attr_to_celsius(
-            self,
-            _trv,
-            "target_temp_low" if _uses_range else "temperature",
-            None,
-            "controlling()",
+        _current_set_temperature_range = (
+            attr_to_celsius(self, _trv, "target_temp_low", None, "controlling()")
+            if trv_supports_temperature_range(_trv)
+            else None
         )
+        _current_set_temperatures = {
+            v
+            for v in (_current_set_temperature_single, _current_set_temperature_range)
+            if v is not None
+        }
 
         _remapped_states = convert_outbound_states(
             self, heater_entity_id, self.bt_hvac_mode
@@ -628,7 +634,7 @@ async def control_trv(self, heater_entity_id=None):
         if _temperature is not None and (
             _new_hvac_mode != HVACMode.OFF or _no_off_system_mode
         ):
-            if _temperature != _current_set_temperature:
+            if _temperature not in _current_set_temperatures:
                 old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
                 _LOGGER.debug(
                     "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
@@ -744,38 +750,48 @@ async def check_target_temperature(self, heater_entity_id=None):
                 heater_entity_id,
             )
             break
-        _supported_features = _trv_state.attributes.get("supported_features", 0)
-        _uses_range = bool(
-            _supported_features & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+        # Check both the single-setpoint and range-low attributes and
+        # accept a match on either -- a device may advertise
+        # TARGET_TEMPERATURE_RANGE but still only be driven via plain
+        # "temperature" if no model-specific quirk intercepts the write
+        # (see model_fixes). Relying on the feature bit alone to pick a
+        # single attribute risks polling one that never changes for such
+        # devices, which would time out every time.
+        _current_temp_single = attr_to_celsius(
+            self, _trv_state, "temperature", None, "check_target_temperature()"
         )
-        _temp_attr = "target_temp_low" if _uses_range else "temperature"
-        _current_set_temperature = attr_to_celsius(
-            self, _trv_state, _temp_attr, None, "check_target_temperature()"
+        _current_temp_range = (
+            attr_to_celsius(
+                self, _trv_state, "target_temp_low", None, "check_target_temperature()"
+            )
+            if trv_supports_temperature_range(_trv_state)
+            else None
         )
+        _current_set_temperatures = {
+            v for v in (_current_temp_single, _current_temp_range) if v is not None
+        }
         if _timeout == 0:
             _LOGGER.debug(
-                "better_thermostat %s: %s / check_target_temp (%s) / _last: %s - _current: %s",
+                "better_thermostat %s: %s / check_target_temp / _last: %s - _current: %s",
                 self.device_name,
                 heater_entity_id,
-                _temp_attr,
                 _real_trv["last_temperature"],
-                _current_set_temperature,
+                _current_set_temperatures or None,
             )
         if (
-            _current_set_temperature is None
-            or _real_trv["last_temperature"] == _current_set_temperature
+            not _current_set_temperatures
+            or _real_trv["last_temperature"] in _current_set_temperatures
         ):
             _timeout = 0
             break
         if _timeout > 360:
             _LOGGER.warning(
                 "better_thermostat %s: TRV %s did not confirm the target temperature "
-                "after 360s (wrote=%s, last reported=%s via %s); giving up and assuming applied",
+                "after 360s (wrote=%s, last reported=%s); giving up and assuming applied",
                 self.device_name,
                 heater_entity_id,
                 _real_trv["last_temperature"],
-                _current_set_temperature,
-                _temp_attr,
+                _current_set_temperatures or None,
             )
             _timeout = 0
             break

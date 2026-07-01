@@ -7,7 +7,9 @@ compatibility with the Better Thermostat integration.
 
 import logging
 
-from homeassistant.components.climate.const import ClimateEntityFeature
+from custom_components.better_thermostat.utils.helpers import (
+    trv_supports_temperature_range,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -89,14 +91,11 @@ async def override_set_temperature(self, entity_id, temperature):
         )
         return True
 
-    supported_features = state.attributes.get("supported_features", 0)
-    _supports_range = bool(
-        supported_features & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
-    )
+    _supports_range = trv_supports_temperature_range(state)
 
     _LOGGER.debug(
         f"better_thermostat {self.device_name}: TRV {entity_id} device quirk bth-rm230z "
-        f"found supported_features {supported_features} (range={_supports_range})"
+        f"found supported_features {state.attributes.get('supported_features', 0)} (range={_supports_range})"
     )
 
     if _supports_range:

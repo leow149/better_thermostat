@@ -7,7 +7,7 @@ import math
 import re
 from typing import Any
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -397,6 +397,31 @@ def state_temperature_unit(
         if isinstance(unit, str):
             return unit
     return system_unit
+
+
+def trv_supports_temperature_range(state: State | None) -> bool:
+    """Check whether a climate state advertises TARGET_TEMPERATURE_RANGE.
+
+    Centralizes the supported_features bitmask check so write paths
+    (model quirks) and read/confirmation paths (control_trv,
+    check_target_temperature) stay in sync if the detection logic
+    ever needs to change.
+
+    Parameters
+    ----------
+    state : State | None
+            the climate entity state to inspect
+
+    Returns
+    -------
+    bool
+            True if the range feature bit is set, False otherwise
+            (including when state is None)
+    """
+    if state is None:
+        return False
+    supported_features = state.attributes.get("supported_features", 0)
+    return bool(supported_features & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)
 
 
 def attr_to_celsius(
