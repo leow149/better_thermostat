@@ -156,6 +156,7 @@ from .utils.valve_maintenance import (
 )
 from .utils.watcher import (
     STARTUP_DEGRADED_GRACE_PERIOD,
+    await_critical_entities,
     await_optional_sensors,
     check_and_update_degraded_mode,
     check_critical_entities,
@@ -1685,6 +1686,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def _finalize_startup(self) -> None:
         """Run post-init tasks: triggers, listeners, periodic jobs."""
+        # Wait for critical entities (TRVs) with increasing retry delays before
+        # any startup path can raise a missing_entity repair issue.  Both
+        # _trigger_time and _trigger_check_weather below call
+        # check_critical_entities internally, so the retry must complete first.
+        # Cloud-backed valves (e.g. Tado) often initialise later than Home
+        # Assistant itself; without this wait a single immediate check reports a
+        # false-positive that lingers in the repair dashboard even after the
+        # valve comes online.
+        await await_critical_entities(self)
+        if self.is_removed:
+            return
+        _LOGGER.debug(
+            "better_thermostat %s: checking critical entities...", self.device_name
+        )
+        await check_critical_entities(self)
+
         _LOGGER.debug("better_thermostat %s: triggering time...", self.device_name)
         await self._trigger_time(None)
         _LOGGER.debug(
@@ -1721,11 +1738,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.async_on_remove(
                 async_track_time_change(self.hass, self._trigger_time, 5, 0, 0)
             )
-
-        _LOGGER.debug(
-            "better_thermostat %s: checking critical entities...", self.device_name
-        )
-        await check_critical_entities(self)
 
         # Wait for optional sensors with increasing retry delays before
         # entering degraded mode (see await_optional_sensors for details).
