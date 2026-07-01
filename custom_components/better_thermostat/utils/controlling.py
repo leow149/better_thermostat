@@ -24,9 +24,8 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.helpers import (
-    attr_to_celsius,
     convert_to_float,
-    trv_supports_temperature_range,
+    get_current_set_temperatures,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -422,26 +421,11 @@ async def control_trv(self, heater_entity_id=None):
             self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
             return True
 
-        # Read both the single-setpoint and range-low attributes. We can't
-        # assume the range feature bit alone predicts which one a given
-        # write path actually updates -- a device may advertise
-        # TARGET_TEMPERATURE_RANGE but still only be driven via plain
-        # "temperature" if no model-specific quirk intercepts the write
-        # (see model_fixes). Accepting a match on either avoids getting
-        # stuck comparing against an attribute that never changes.
-        _current_set_temperature_single = attr_to_celsius(
-            self, _trv, "temperature", None, "controlling()"
+        # See get_current_set_temperatures() docstring for why we accept a
+        # match on either the single-setpoint or range-low attribute.
+        _current_set_temperatures = get_current_set_temperatures(
+            self, _trv, "controlling()"
         )
-        _current_set_temperature_range = (
-            attr_to_celsius(self, _trv, "target_temp_low", None, "controlling()")
-            if trv_supports_temperature_range(_trv)
-            else None
-        )
-        _current_set_temperatures = {
-            v
-            for v in (_current_set_temperature_single, _current_set_temperature_range)
-            if v is not None
-        }
 
         _remapped_states = convert_outbound_states(
             self, heater_entity_id, self.bt_hvac_mode
@@ -751,26 +735,11 @@ async def check_target_temperature(self, heater_entity_id=None):
                 heater_entity_id,
             )
             break
-        # Check both the single-setpoint and range-low attributes and
-        # accept a match on either -- a device may advertise
-        # TARGET_TEMPERATURE_RANGE but still only be driven via plain
-        # "temperature" if no model-specific quirk intercepts the write
-        # (see model_fixes). Relying on the feature bit alone to pick a
-        # single attribute risks polling one that never changes for such
-        # devices, which would time out every time.
-        _current_temp_single = attr_to_celsius(
-            self, _trv_state, "temperature", None, "check_target_temperature()"
+        # See get_current_set_temperatures() docstring for why we accept a
+        # match on either the single-setpoint or range-low attribute.
+        _current_set_temperatures = get_current_set_temperatures(
+            self, _trv_state, "check_target_temperature()"
         )
-        _current_temp_range = (
-            attr_to_celsius(
-                self, _trv_state, "target_temp_low", None, "check_target_temperature()"
-            )
-            if trv_supports_temperature_range(_trv_state)
-            else None
-        )
-        _current_set_temperatures = {
-            v for v in (_current_temp_single, _current_temp_range) if v is not None
-        }
         if _timeout == 0:
             _LOGGER.debug(
                 "better_thermostat %s: %s / check_target_temp / _last: %s - _current: %s",
@@ -802,3 +771,4 @@ async def check_target_temperature(self, heater_entity_id=None):
 
     _real_trv["target_temp_received"] = True
     return True
+    

@@ -472,6 +472,46 @@ def attr_to_celsius(
     )
 
 
+def get_current_set_temperatures(
+    self, state: State | None, log_source: str
+) -> set[float]:
+    """Read the single-setpoint and range-low temperatures from a climate state.
+
+    Centralizes the "read temperature and target_temp_low, then build a
+    non-None set" logic shared by control_trv()'s write-skip check and
+    check_target_temperature()'s confirmation polling. A device's
+    supported_features range bit doesn't guarantee its setpoint is
+    actually driven via target_temp_low -- only a model-specific quirk
+    makes that true, and an un-quirked range-capable device may still
+    only ever be written via plain "temperature" through the generic
+    adapter. Returning both non-None values as a set lets callers accept
+    a match on either, correct regardless of which path performed the
+    write.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``device_name``
+    state : State | None
+            the climate entity state to inspect, or None when unavailable
+    log_source : str
+            caller name, forwarded to attr_to_celsius for logging context
+
+    Returns
+    -------
+    set[float]
+            the set of non-None current setpoints (temperature and,
+            when range mode is supported, target_temp_low)
+    """
+    single = attr_to_celsius(self, state, "temperature", None, log_source)
+    range_low = (
+        attr_to_celsius(self, state, "target_temp_low", None, log_source)
+        if trv_supports_temperature_range(state)
+        else None
+    )
+    return {v for v in (single, range_low) if v is not None}
+
+
 class rounding:
     """Rounding helpers for stable step-based rounding.
 
