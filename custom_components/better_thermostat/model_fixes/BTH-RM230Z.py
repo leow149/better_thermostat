@@ -46,58 +46,77 @@ async def override_set_temperature(self, entity_id, temperature):
     live supported_features bitmask for TARGET_TEMPERATURE_RANGE
     instead, and if present, write both target_temp_high and
     target_temp_low so the device actually reacts.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    entity_id : str
+            entity_id of the TRV
+    temperature : float
+            the target temperature to set
+
+    Returns
+    -------
+    bool
+            True if this quirk handled the set_temperature call for
+            entity_id (a service call was issued), False if entity_id
+            is not a BTH-RM230Z and the caller should fall back to the
+            generic adapter.
     """
     model = self.real_trvs[entity_id]["model"]
-    if model == "BTH-RM230Z":
+    if model != "BTH-RM230Z":
+        return False
+
+    _LOGGER.debug(
+        f"better_thermostat {self.device_name}: TRV {entity_id} device quirk bth-rm230z for set_temperature active"
+    )
+    state = self.hass.states.get(entity_id)
+
+    if state is None:
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: TRV {entity_id} device quirk bth-rm230z for set_temperature active"
+            "better_thermostat %s: TRV %s has no current state, "
+            "falling back to simple set_temperature",
+            self.device_name,
+            entity_id,
         )
-        state = self.hass.states.get(entity_id)
-
-        if state is None:
-            _LOGGER.debug(
-                "better_thermostat %s: TRV %s has no current state, "
-                "falling back to simple set_temperature",
-                self.device_name,
-                entity_id,
-            )
-            await self.hass.services.async_call(
-                "climate",
-                "set_temperature",
-                {"entity_id": entity_id, "temperature": temperature},
-                blocking=True,
-                context=self.context,
-            )
-            return True
-
-        supported_features = state.attributes.get("supported_features", 0)
-        _supports_range = bool(
-            supported_features & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+        await self.hass.services.async_call(
+            "climate",
+            "set_temperature",
+            {"entity_id": entity_id, "temperature": temperature},
+            blocking=True,
+            context=self.context,
         )
+        return True
 
-        _LOGGER.debug(
-            f"better_thermostat {self.device_name}: TRV {entity_id} device quirk bth-rm230z "
-            f"found supported_features {supported_features} (range={_supports_range})"
+    supported_features = state.attributes.get("supported_features", 0)
+    _supports_range = bool(
+        supported_features & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+    )
+
+    _LOGGER.debug(
+        f"better_thermostat {self.device_name}: TRV {entity_id} device quirk bth-rm230z "
+        f"found supported_features {supported_features} (range={_supports_range})"
+    )
+
+    if _supports_range:
+        await self.hass.services.async_call(
+            "climate",
+            "set_temperature",
+            {
+                "entity_id": entity_id,
+                "target_temp_high": temperature,
+                "target_temp_low": temperature,
+            },
+            blocking=True,
+            context=self.context,
         )
-
-        if _supports_range:
-            await self.hass.services.async_call(
-                "climate",
-                "set_temperature",
-                {
-                    "entity_id": entity_id,
-                    "target_temp_high": temperature,
-                    "target_temp_low": temperature,
-                },
-                blocking=True,
-                context=self.context,
-            )
-        else:
-            await self.hass.services.async_call(
-                "climate",
-                "set_temperature",
-                {"entity_id": entity_id, "temperature": temperature},
-                blocking=True,
-                context=self.context,
-            )
+    else:
+        await self.hass.services.async_call(
+            "climate",
+            "set_temperature",
+            {"entity_id": entity_id, "temperature": temperature},
+            blocking=True,
+            context=self.context,
+        )
     return True

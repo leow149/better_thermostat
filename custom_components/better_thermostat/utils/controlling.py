@@ -425,8 +425,16 @@ async def control_trv(self, heater_entity_id=None):
             self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
             return True
 
+        _supported_features = _trv.attributes.get("supported_features", 0)
+        _uses_range = bool(
+            _supported_features & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+        )
         _current_set_temperature = attr_to_celsius(
-            self, _trv, "temperature", None, "controlling()"
+            self,
+            _trv,
+            "target_temp_low" if _uses_range else "temperature",
+            None,
+            "controlling()",
         )
 
         _remapped_states = convert_outbound_states(
