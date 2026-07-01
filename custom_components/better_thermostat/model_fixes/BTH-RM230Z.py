@@ -1,9 +1,10 @@
-# Quirks for BTH-RM230Z
 """Model quirks for BTH-RM230Z thermostats.
 
 Contains small device-specific fixes and overrides necessary for
 compatibility with the Better Thermostat integration.
 """
+
+from __future__ import annotations
 
 import logging
 
@@ -64,16 +65,9 @@ async def override_set_temperature(self, entity_id, temperature):
             is not a BTH-RM230Z and the caller should fall back to the
             generic adapter.
     """
-    model = self.real_trvs[entity_id]["model"]
-    if model != "BTH-RM230Z":
-        return False
-
-    _LOGGER.debug(
-        f"better_thermostat {self.device_name}: TRV {entity_id} device quirk bth-rm230z for set_temperature active"
-    )
     state = self.hass.states.get(entity_id)
-
-    if state is None:
+    model = self.real_trvs[entity_id].model
+    if model == "BTH-RM230Z":
         _LOGGER.debug(
             "better_thermostat %s: TRV %s has no current state, "
             "falling back to simple set_temperature",

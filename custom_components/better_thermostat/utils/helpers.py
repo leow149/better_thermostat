@@ -1,22 +1,32 @@
 """Helper functions for the Better Thermostat component."""
 
-from collections.abc import Callable, Mapping
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime
 import logging
 import math
 import re
 from typing import Any
 
-from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
-from homeassistant.const import UnitOfTemperature
-from homeassistant.core import State
+from homeassistant.components.climate.const import HVACMode
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import (
+    CONF_NAME,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    Platform,
+    UnitOfTemperature,
+)
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
-from homeassistant.util import dt as dt_util
+from homeassistant.util import dt as dt_util, slugify
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.utils.const import (
     CONF_HEAT_AUTO_SWAPPED,
+    DOMAIN,
     MAX_HEATING_POWER,
     MAX_REASONABLE_TEMPERATURE,
     MIN_HEATING_POWER,
@@ -32,6 +42,84 @@ from custom_components.better_thermostat.utils.const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def find_device_entity(
+    entity_registry: er.EntityRegistry,
+    device_id: str,
+    domains: Iterable[str],
+    keywords: Iterable[str],
+) -> str | None:
+    """Return the entity_id of the first matching entity on a device.
+
+    A match is any entity belonging to ``device_id`` whose domain is in
+    ``domains`` and whose name, unique_id or entity_id contains any of
+    ``keywords`` (case-insensitive). Returns ``None`` if nothing matches.
+    """
+    domains = tuple(domains)
+    keywords = tuple(k.lower() for k in keywords)
+    for ent in entity_registry.entities.values():
+        if ent.device_id != device_id or ent.domain not in domains:
+            continue
+        name = (getattr(ent, "original_name", "") or "").lower()
+        uid = (ent.unique_id or "").lower()
+        eid = (ent.entity_id or "").lower()
+
+        if (
+            any(k in name for k in keywords)
+            or any(k in uid for k in keywords)
+            or any(k in eid for k in keywords)
+        ):
+            return ent.entity_id
+    return None
+
+
+@callback
+def async_normalize_bt_entity_ids(
+    hass: HomeAssistant, entry: ConfigEntry, domain: str
+) -> None:
+    """Rename stale BT registry entries so their entity_id tracks the name.
+
+    HA's entity registry reuses the existing entry on reload (unique id ==
+    config entry id), so the entity_id is frozen at first creation while only
+    the friendly name follows the device. Blueprints/automations that reference
+    ``<domain>.bt_<room>`` then miss. Rename each existing entry to the id HA
+    would generate from the current name, before the platform re-adds the
+    entities (which reuse the now-correct id).
+
+    For the climate entity the device does not exist yet at this point in
+    setup, so the desired id is derived directly from the configured name.
+    For the auxiliary platforms the device already exists (climate set it up
+    first), so HA's own ``async_regenerate_entity_id`` is used.
+    """
+    registry = er.async_get(hass)
+    # The registry is populated lazily on first load; with a mocked hass
+    # (unit tests) it is an unloaded shell without ``.entities``, so there is
+    # nothing to rename.
+    if not hasattr(registry, "entities"):
+        return
+    for reg_entry in registry.entities.get_entries_for_config_entry_id(entry.entry_id):
+        if reg_entry.platform != DOMAIN or reg_entry.domain != domain:
+            continue
+        if domain == Platform.CLIMATE:
+            object_id = slugify(entry.data.get(CONF_NAME) or "better_thermostat")
+            desired = registry.async_get_available_entity_id(
+                domain, object_id, current_entity_id=reg_entry.entity_id
+            )
+        else:
+            desired = registry.async_regenerate_entity_id(reg_entry)
+        if desired == reg_entry.entity_id:
+            continue
+        try:
+            registry.async_update_entity(reg_entry.entity_id, new_entity_id=desired)
+        except ValueError as err:
+            _LOGGER.warning(
+                "better_thermostat %s: could not rename %s to %s: %s",
+                entry.data.get(CONF_NAME),
+                reg_entry.entity_id,
+                desired,
+                err,
+            )
+
+
 def normalize_calibration_mode(
     mode: CalibrationMode | str | None,
 ) -> CalibrationMode | str | None:
@@ -42,7 +130,7 @@ def normalize_calibration_mode(
     if isinstance(mode, (int, float)):
         try:
             numeric = int(mode)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             numeric = None
         if numeric == 0:
             return CalibrationMode.DEFAULT
@@ -76,7 +164,8 @@ def entity_uses_calibration_mode(bt, entity_id: str, expected: CalibrationMode) 
     """Check if the given TRV has ``expected`` calibration mode configured."""
 
     try:
-        advanced = (bt.real_trvs.get(entity_id, {}) or {}).get("advanced", {}) or {}
+        _trv = bt.real_trvs.get(entity_id)
+        advanced = (_trv.advanced if _trv is not None else {}) or {}
     except AttributeError:
         return False
     mode = advanced.get("calibration_mode")
@@ -143,7 +232,9 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
     Parameters
     ----------
     self :
-            FIXME
+            self instance of better_thermostat
+    entity_id :
+            entity id of the TRV whose mode is being remapped
     hvac_mode : str
             HVAC mode to be remapped
 
@@ -155,9 +246,11 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
     str
             remapped mode according to device's quirks
     """
-    _heat_auto_swapped = self.real_trvs[entity_id]["advanced"].get(
-        CONF_HEAT_AUTO_SWAPPED, False
-    )
+    trv = self.real_trvs.get(entity_id)
+    if trv is None:
+        return hvac_mode
+
+    _heat_auto_swapped = (trv.advanced or {}).get(CONF_HEAT_AUTO_SWAPPED, False)
 
     if _heat_auto_swapped:
         if hvac_mode == HVACMode.HEAT and not inbound:
@@ -166,7 +259,9 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
             return HVACMode.HEAT
         return hvac_mode
 
-    trv_modes = self.real_trvs[entity_id]["hvac_modes"]
+    trv_modes = trv.hvac_modes
+    if not trv_modes:
+        return hvac_mode
     if HVACMode.HEAT not in trv_modes and HVACMode.HEAT_COOL in trv_modes:
         # entity only supports HEAT_COOL, but not HEAT - need to translate
         if not inbound and hvac_mode == HVACMode.HEAT:
@@ -193,12 +288,65 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
     return HVACMode.OFF
 
 
+def group_all_members_off(self) -> bool:
+    """Whether every available group member is effectively off.
+
+    Gates group-wide "switch off" adoptions so a single valve entering frost
+    protection (reported as ``off`` in HA) or a single ``no_off_system_mode``
+    valve dropping to its minimum temperature cannot turn the whole room off.
+    Single-TRV instances always agree, preserving historical behavior.
+
+    A member counts as off when its reported HVAC state is ``off`` or, for a
+    ``no_off_system_mode`` device (which never reports ``off``), when its
+    current setpoint has dropped to that device's minimum temperature.
+    """
+    trv_ids = list(self.real_trvs.keys())
+    if len(trv_ids) <= 1:
+        return True
+
+    saw_member = False
+    for entity_id in trv_ids:
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+            continue
+        saw_member = True
+        if state.state == HVACMode.OFF:
+            continue
+        member = self.real_trvs.get(entity_id)
+        if member is not None and (member.advanced or {}).get(
+            "no_off_system_mode", False
+        ):
+            setpoint = convert_to_float(
+                str(state.attributes.get("temperature")),
+                self.device_name,
+                "group_all_members_off()",
+            )
+            if (
+                setpoint is not None
+                and member.min_temp is not None
+                and setpoint <= member.min_temp
+            ):
+                continue
+        return False
+    return saw_member
+
+
 def heating_power_valve_position(self, entity_id):
     """Compute an expected valve position from the heating power.
 
     Given the global `heating_power` estimate and the target/current
     temperature, a heuristic mapping to valve opening percentage is
     returned (between 0.0 and 1.0).
+
+    Examples (resulting valve_pos for a given temp_diff and heating_power):
+
+    | temp_diff | hp=0.02 | hp=0.01 | hp=0.005 |
+    |-----------|---------|---------|----------|
+    | 0.1       | 0.0871  | 0.1678  | 0.3232   |
+    | 0.2       | 0.1678  | 0.3232  | 0.6227   |
+    | 0.3       | 0.2462  | 0.4744  | 0.9139   |
+    | 0.4       | 0.3232  | 0.6227  | 1.0000   |
+    | 0.5       | 0.3992  | 0.7691  | 1.0000   |
     """
     _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
 
@@ -251,34 +399,6 @@ def heating_power_valve_position(self, entity_id):
     )
     return valve_pos
 
-    # Example values for different heating_power and temp_diff:
-    # With heating_power of 0.02:
-    # | temp_diff | valve_pos  |
-    # |-----------|------------|
-    # | 0.1       | 0.0871     |
-    # | 0.2       | 0.1678     |
-    # | 0.3       | 0.2462     |
-    # | 0.4       | 0.3232     |
-    # | 0.5       | 0.3992     |
-
-    # With heating_power of 0.01:
-    # | temp_diff | valve_pos  |
-    # |-----------|------------|
-    # | 0.1       | 0.1678     |
-    # | 0.2       | 0.3232     |
-    # | 0.3       | 0.4744     |
-    # | 0.4       | 0.6227     |
-    # | 0.5       | 0.7691     |
-
-    # With heating_power of 0.005:
-    # | temp_diff | valve_pos  |
-    # |-----------|------------|
-    # | 0.1       | 0.3232     |
-    # | 0.2       | 0.6227     |
-    # | 0.3       | 0.9139     |
-    # | 0.4       | 1.0000     |
-    # | 0.5       | 1.0000     |
-
 
 def is_reasonable_temperature(value: float | None) -> bool:
     """Return ``True`` iff ``value`` is a plausible indoor temperature in °C.
@@ -317,10 +437,10 @@ def convert_to_float(
         return None
     try:
         # Use 0.01 step (2 decimal places) to preserve sensor precision.
-        # Rounding to 0.1 caused issues where 19.97 became 20.0, leading to
-        # incorrect HVAC action decisions (see issues #1792, #1789, #1785).
+        # Rounding to 0.1 can turn 19.97 into 20.0, leading to incorrect
+        # HVAC action decisions.
         return round_by_step(float(value), 0.01)
-    except (ValueError, TypeError, AttributeError, KeyError):
+    except ValueError, TypeError, AttributeError, KeyError:
         _LOGGER.debug(
             "better thermostat %s: Could not convert '%s' to float in %s",
             instance_name,
@@ -583,7 +703,7 @@ def check_float(potential_float):
     try:
         float(potential_float)
         return True
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return False
 
 
@@ -828,9 +948,12 @@ async def _find_lowest_battery_in_group(self, member_ids, visited=None):
 
     Parameters
     ----------
-    self : BetterThermostat instance
-    member_ids : list of entity_id strings
-    visited : set of already visited entity_ids to prevent infinite recursion
+    self :
+        BetterThermostat instance
+    member_ids :
+        list of entity_id strings to search
+    visited :
+        set of already visited entity_ids to prevent infinite recursion
 
     Returns
     -------
@@ -858,7 +981,7 @@ async def _find_lowest_battery_in_group(self, member_ids, visited=None):
 
         try:
             level = float(battery_state.state)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             _LOGGER.debug(
                 "better_thermostat: non-numeric battery state '%s' for %s",
                 battery_state.state,
@@ -897,6 +1020,8 @@ async def find_local_calibration_entity(self, entity_id):
     ----------
     self :
             self instance of better_thermostat
+    entity_id :
+            entity id of the TRV to find the local calibration entity for
 
     Returns
     -------
@@ -965,6 +1090,8 @@ async def get_trv_intigration(self, entity_id):
     ----------
     self :
             self instance of better_thermostat
+    entity_id :
+            entity id of the TRV to look up
 
     Returns
     -------
@@ -990,7 +1117,7 @@ def get_max_value(obj, value, default):
             if _temp is not None:
                 _raw.append(_temp)
         return max(_raw, key=float)
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         return default
 
 
@@ -1003,7 +1130,7 @@ def get_min_value(obj, value, default):
             if _temp is not None:
                 _raw.append(_temp)
         return min(_raw, key=float)
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         return default
 
 

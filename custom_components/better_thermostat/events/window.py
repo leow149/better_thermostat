@@ -4,6 +4,8 @@ These helpers respond to window sensor events and implement debouncing and
 delayed handling so that HVAC behavior uses window-open information reliably.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 
@@ -70,7 +72,7 @@ async def trigger_window_change(self, event) -> None:
             issue_id=f"invalid_window_state_{self.device_name}",
             is_fixable=False,
             is_persistent=False,
-            learn_more_url="https://better-thermostat.org/qanda/window_sensor",
+            learn_more_url="https://better-thermostat.org/faq/window-sensor",
             severity=ir.IssueSeverity.ERROR,
             translation_key="invalid_window_state",
             translation_placeholders={
