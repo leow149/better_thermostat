@@ -289,6 +289,10 @@ async def trigger_trv_change(self, event):
             _new_heating_setpoint,
             trv.last_temperature,
         )
+        # Preserve the device's raw reported setpoint before range clamping;
+        # no_off OFF detection must compare against the device's true min_temp,
+        # not a value the clamp may have raised into [bt_min_temp, bt_max_temp].
+        _raw_heating_setpoint = _new_heating_setpoint
         if (
             _new_heating_setpoint < self.bt_min_temp
             or self.bt_max_temp < _new_heating_setpoint
@@ -375,7 +379,7 @@ async def trigger_trv_change(self, event):
             )
 
         if advanced.get("no_off_system_mode", False):
-            if _new_heating_setpoint == trv.min_temp:
+            if _raw_heating_setpoint == trv.min_temp:
                 # Only set OFF if window is NOT open - min_temp during window
                 # open was set by BT, not by user turning off heating - and only
                 # when the whole group agrees, so a single no_off valve dropping

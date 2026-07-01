@@ -401,7 +401,11 @@ def compute_pid(
             st.pid_last_meas = base if prev is None else ((1.0 - a) * prev + a * base)
     else:
         st.pid_last_meas = current_temp
-        st.pid_last_error = e
+    # Refresh the last error together with pid_last_time on every cycle,
+    # regardless of the derivative mode. Otherwise a switch back to
+    # derivative-on-error would pair a stale error with a fresh timestamp and
+    # compute a spurious derivative spike.
+    st.pid_last_error = e
     st.pid_last_time = now
 
     # Remember the error sign for the next cycle

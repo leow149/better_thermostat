@@ -495,6 +495,24 @@ class TestPIDController:
         assert debug["d"] == 5.0
         assert state.pid_last_error == 3.0
 
+    def test_pid_last_error_refreshed_in_d_on_measurement_mode(self):
+        """pid_last_error tracks the current error even under d_on_measurement.
+
+        Otherwise a later switch back to derivative-on-error would pair a stale
+        error with a fresh pid_last_time and compute a spurious derivative.
+        """
+        params = PIDParams(auto_tune=False, d_on_measurement=True)
+        _, _, state = self._compute(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=20.0,
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key="test_last_err",
+        )
+        # e = 22.0 - 20.0; without the fix this stays None in D-on-measurement.
+        assert state.pid_last_error == 2.0
+
     def test_hold_time_blocks_small_changes(self):
         """Test that hold-time blocks small output changes within the hold period."""
         # Use short hold time for testing, but long enough to block

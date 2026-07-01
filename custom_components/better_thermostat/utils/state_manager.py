@@ -432,9 +432,22 @@ class StateManager:
     def record_thermal(
         self, heating_power: float | None, heat_loss_rate: float | None
     ) -> None:
-        """Record the entity-held thermal stats before a save."""
+        """Record the entity-held thermal stats before a save.
+
+        Non-finite samples (NaN/inf) are dropped to ``None`` so a bad reading
+        cannot be persisted and reloaded; this mirrors the finite handling in
+        ``clamped_thermal()``.
+        """
+
+        def _finite_or_none(value: float | None) -> float | None:
+            try:
+                return value if value is not None and math.isfinite(value) else None
+            except TypeError:
+                return None
+
         self.thermal = ThermalStats(
-            heating_power=heating_power, heat_loss_rate=heat_loss_rate
+            heating_power=_finite_or_none(heating_power),
+            heat_loss_rate=_finite_or_none(heat_loss_rate),
         )
 
     # -- Load / Save ---------------------------------------------------------
