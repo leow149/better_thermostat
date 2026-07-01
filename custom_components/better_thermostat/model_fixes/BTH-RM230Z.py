@@ -7,7 +7,7 @@ compatibility with the Better Thermostat integration.
 
 import logging
 
-from homeassistant.helpers import entity_registry as er
+from homeassistant.components.climate.const import ClimateEntityFeature
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,20 +36,27 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
 async def override_set_temperature(self, entity_id, temperature):
     """Handle BTH-RM230Z set_temperature quirk.
 
-    If the device supports both 'heat' and 'cool', send target_temp_high and
-    target_temp_low instead of a single temperature value.
+    This device exposes both a single 'temperature' setpoint and a
+    'target_temp_high'/'target_temp_low' range, but its actual heating
+    logic is driven by target_temp_low (the single 'temperature' field
+    is effectively cosmetic when the range feature is active).
+
+    We can't detect this via hvac_modes -- this device never lists
+    'cool' even when the range feature is active -- so we check the
+    live supported_features bitmask for TARGET_TEMPERATURE_RANGE
+    instead, and if present, write both target_temp_high and
+    target_temp_low so the device actually reacts.
     """
     model = self.real_trvs[entity_id]["model"]
     if model == "BTH-RM230Z":
         _LOGGER.debug(
             f"better_thermostat {self.device_name}: TRV {entity_id} device quirk bth-rm230z for set_temperature active"
         )
-        entity_reg = er.async_get(self.hass)
-        entry = entity_reg.async_get(entity_id)
+        state = self.hass.states.get(entity_id)
 
-        if entry is None:
+        if state is None:
             _LOGGER.debug(
-                "better_thermostat %s: TRV %s not found in entity registry, "
+                "better_thermostat %s: TRV %s has no current state, "
                 "falling back to simple set_temperature",
                 self.device_name,
                 entity_id,
@@ -63,15 +70,17 @@ async def override_set_temperature(self, entity_id, temperature):
             )
             return True
 
-        hvac_modes = (
-            entry.capabilities.get("hvac_modes", []) if entry.capabilities else []
+        supported_features = state.attributes.get("supported_features", 0)
+        _supports_range = bool(
+            supported_features & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
         )
 
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: TRV {entity_id} device quirk bth-rm230z found hvac_modes {hvac_modes}"
+            f"better_thermostat {self.device_name}: TRV {entity_id} device quirk bth-rm230z "
+            f"found supported_features {supported_features} (range={_supports_range})"
         )
 
-        if entry.platform == "mqtt" and "cool" in hvac_modes and "heat" in hvac_modes:
+        if _supports_range:
             await self.hass.services.async_call(
                 "climate",
                 "set_temperature",
