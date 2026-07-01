@@ -882,6 +882,7 @@ async def find_local_calibration_entity(self, entity_id):
                     entity_id,
                 )
                 calibration_entity = entity.entity_id
+                break
 
     if calibration_entity is None:
         _LOGGER.debug(
