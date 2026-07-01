@@ -4,6 +4,8 @@ This module dynamically imports model-specific quirk modules and exposes
 small shim functions that delegate into the model-specific implementations.
 """
 
+from __future__ import annotations
+
 import logging
 import re
 

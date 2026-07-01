@@ -4,6 +4,8 @@ These helpers implement safe no-op defaults for devices that do not
 require specific quirks.
 """
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.components.lock import LockState
@@ -56,9 +58,7 @@ async def initial_tweak(self, entity_id):
         device_id = reg_entity.device_id
 
         def find_entity(domains, keywords):
-            return find_device_entity(
-                entity_registry, device_id, domains, keywords
-            )
+            return find_device_entity(entity_registry, device_id, domains, keywords)
 
         # 1. Local calibration -> 0
         cal_entity = find_entity(

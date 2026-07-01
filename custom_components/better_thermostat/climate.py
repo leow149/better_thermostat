@@ -32,6 +32,7 @@ from homeassistant.const import (
     CONF_NAME,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
+    Platform,
     UnitOfTemperature,
 )
 from homeassistant.core import CALLBACK_TYPE, Context, ServiceCall, State, callback
@@ -62,6 +63,7 @@ from .adapters.delegate import (
     set_hvac_mode as adapter_set_hvac_mode,
     set_temperature as adapter_set_temperature,
 )
+from .device_binding import async_bind_trv_device
 from .events.cooler import trigger_cooler_change
 from .events.temperature import trigger_temperature_change
 from .events.trv import trigger_trv_change
@@ -102,8 +104,13 @@ from .utils.const import (
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
+    DEFAULT_MAX_TEMP,
+    DEFAULT_MIN_TEMP,
+    DEFAULT_TARGET_TEMP,
+    DOMAIN,
     SERVICE_RESET_HEATING_POWER,
     SERVICE_RESET_PID_LEARNINGS,
+    SERVICE_RUN_VALVE_MAINTENANCE,
     SUPPORT_FLAGS,
     VERSION,
     CalibrationMode,
@@ -111,6 +118,7 @@ from .utils.const import (
 )
 from .utils.controlling import control_queue, control_trv
 from .utils.helpers import (
+    async_normalize_bt_entity_ids,
     attr_to_celsius,
     convert_to_float,
     convert_to_float_celsius,
@@ -155,6 +163,7 @@ from .utils.valve_maintenance import (
     run_valve_maintenance,
 )
 from .utils.watcher import (
+    STARTUP_CRITICAL_GRACE_PERIOD,
     STARTUP_DEGRADED_GRACE_PERIOD,
     await_critical_entities,
     await_optional_sensors,
@@ -165,7 +174,6 @@ from .utils.watcher import (
 from .utils.weather import check_ambient_air_temperature, check_weather
 
 _LOGGER = logging.getLogger(__name__)
-DOMAIN = "better_thermostat"
 
 # Default temperature when no sensor data is available (last resort fallback)
 DEFAULT_FALLBACK_TEMPERATURE = 20.0
@@ -218,7 +226,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         SERVICE_RESET_HEATING_POWER, {}, "reset_heating_power"
     )
     platform.async_register_entity_service(
-        "run_valve_maintenance", {}, "run_valve_maintenance_service"
+        SERVICE_RUN_VALVE_MAINTENANCE, {}, "run_valve_maintenance_service"
     )
     platform.async_register_entity_service(
         SERVICE_RESET_PID_LEARNINGS,
@@ -248,6 +256,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         state_class="better_thermostat_state",
     )
     hass.data[DOMAIN][entry.entry_id]["climate"] = bt_entity
+    async_normalize_bt_entity_ids(hass, entry, Platform.CLIMATE)
     async_add_entities([bt_entity])
     _LOGGER.debug(
         "better_thermostat %s: async_setup_entry finished creating entity",
@@ -269,7 +278,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._heating_tracker.reset_power()
         self.async_write_ha_state()
 
-    # ------------------------------------------------------------------
     # Thermal tracker properties
     # Used by: extra_state_attributes, helpers.py, sensor.py,
     #          _restore_state, _hydrate_thermal_from_state,
@@ -486,9 +494,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             and unit == UnitOfTemperature.FAHRENHEIT
         ):
             self.bt_target_temp_step = round(self.bt_target_temp_step * 5.0 / 9.0, 4)
-        self.bt_min_temp: float | None = 0.0
-        self.bt_max_temp: float | None = 30.0
-        self.bt_target_temp = 5.0
+        self.bt_min_temp: float | None = DEFAULT_MIN_TEMP
+        self.bt_max_temp: float | None = DEFAULT_MAX_TEMP
+        self.bt_target_temp = DEFAULT_TARGET_TEMP
         self.bt_target_cooltemp = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
         self.bt_hvac_mode: HVACMode | None = None
@@ -977,6 +985,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def startup(self) -> None:
         """Orchestrate entity startup."""
+        # Start the critical-entity grace window at the very beginning so that
+        # any availability check fired during the startup loop (or shortly
+        # after) does not raise a premature ``missing_entity`` repair for a
+        # slow-to-load underlying integration. The window is re-anchored in
+        # ``_finalize_startup`` to cover post-startup reconnection blips.
+        self._critical_grace_until = dt_util.now() + STARTUP_CRITICAL_GRACE_PERIOD
         while self.startup_running:
             _LOGGER.info(
                 "better_thermostat %s: Starting version %s. Waiting for entity to be ready...",
@@ -1686,6 +1700,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def _finalize_startup(self) -> None:
         """Run post-init tasks: triggers, listeners, periodic jobs."""
+        # Likewise give critical (TRV) entities a short grace before raising
+        # ``missing_entity`` repairs; cloud-backed valves (Tado, etc.) can lag
+        # behind HA startup and would otherwise produce dismissable noise.
+        self._critical_grace_until = dt_util.now() + STARTUP_CRITICAL_GRACE_PERIOD
         # Wait for critical entities (TRVs) with increasing retry delays before
         # any startup path can raise a missing_entity repair issue.  Both
         # _trigger_time and _trigger_check_weather below call
@@ -1712,6 +1730,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.startup_running = False
         self._available = True
         self.async_write_ha_state()
+
+        if isinstance(self.all_trvs, list):
+            for trv_conf in self.all_trvs:
+                trv_id = trv_conf.get("trv")
+                if trv_id:
+                    await async_bind_trv_device(
+                        self.hass, self._unique_id, trv_id, self._config_entry_id
+                    )
 
         _LOGGER.debug("better_thermostat %s: sleeping 15s...", self.device_name)
         await asyncio.sleep(15)

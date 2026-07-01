@@ -6,6 +6,8 @@ to make robust decisions about whether the external temperature should be
 propagated to the target devices.
 """
 
+from __future__ import annotations
+
 import logging
 import math
 from time import monotonic
@@ -16,7 +18,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
-from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
+from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP, DOMAIN
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     is_reasonable_temperature,
@@ -220,7 +222,7 @@ async def trigger_temperature_change(self, event):
         # Minimal compatible call (parameter names match the current HA API)
         ir.async_create_issue(
             hass=self.hass,
-            domain="better_thermostat",
+            domain=DOMAIN,
             issue_id=f"invalid_external_temperature_{self.device_name}",
             is_fixable=False,
             severity=ir.IssueSeverity.ERROR,

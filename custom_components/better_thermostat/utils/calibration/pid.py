@@ -61,6 +61,7 @@ class PIDState:
     # PID-State
     pid_integral: float = 0.0
     pid_last_meas: float | None = None
+    pid_last_error: float | None = None
     pid_last_time: float = 0.0
     pid_kp: float | None = None
     pid_ki: float | None = None
@@ -269,10 +270,11 @@ def compute_pid(
                     d_meas = (smoothed - prev) / dt
                     d_term = -float(st.pid_kd) * d_meas
                 # Stored (smoothed) measurement is updated after the u calculation below
-    # Derivative on error (needs the last error, approximated via the last measurement)
-    elif dt > 0 and st.pid_last_meas is not None:
-        last_e = inp_target_temp_C - st.pid_last_meas
-        d_err = (e - last_e) / dt
+    # Derivative on error: use the previous cycle's stored error so a setpoint
+    # change produces a derivative kick. This is what distinguishes the mode
+    # from derivative-on-measurement above, where the setpoint term cancels.
+    elif dt > 0 and st.pid_last_error is not None:
+        d_err = (e - st.pid_last_error) / dt
         d_term = float(st.pid_kd) * d_err
 
     # Update the slope EMA in PID mode too (for logging/diagnostics)
@@ -319,6 +321,7 @@ def compute_pid(
         cur_sign = 1 if e > 0 else (-1 if e < 0 else 0)
         if (
             st.last_error_sign is not None
+            and st.last_error_sign != 0
             and cur_sign not in (0, st.last_error_sign)
             and abs(delta_T or 0.0) <= params.steady_state_band_K
         ):
@@ -394,6 +397,7 @@ def compute_pid(
             st.pid_last_meas = base if prev is None else ((1.0 - a) * prev + a * base)
     else:
         st.pid_last_meas = current_temp
+        st.pid_last_error = e
     st.pid_last_time = now
 
     # Remember the error sign for the next cycle
@@ -548,6 +552,9 @@ def sanitize_pid_state(
         pathology = "non-finite state"
     if not _finite(state.pid_last_meas):
         state.pid_last_meas = None
+        pathology = "non-finite state"
+    if not _finite(state.pid_last_error):
+        state.pid_last_error = None
         pathology = "non-finite state"
     for gain_attr in ("pid_kp", "pid_ki", "pid_kd"):
         if not _finite(getattr(state, gain_attr)):

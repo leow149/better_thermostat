@@ -12,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory, UnitOfTemperature
+from homeassistant.const import EntityCategory, Platform, UnitOfTemperature
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -23,13 +23,13 @@ from homeassistant.helpers.entity_registry import (
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .calibration import _get_current_solar_intensity
-from .utils.const import CONF_CALIBRATION_MODE, CalibrationMode
+from .utils.const import CONF_CALIBRATION_MODE, DOMAIN, CalibrationMode
+from .utils.helpers import async_normalize_bt_entity_ids
 
 if TYPE_CHECKING:
     from .climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
-DOMAIN = "better_thermostat"
 
 # Global tracking variables for active algorithm-specific entities
 _ACTIVE_ALGORITHM_ENTITIES: dict[str, dict[CalibrationMode, list[str]]] = {}
@@ -74,6 +74,7 @@ async def async_setup_entry(
     algorithm_sensors = await _setup_algorithm_sensors(hass, entry, bt_climate)
     sensors.extend(algorithm_sensors)
 
+    async_normalize_bt_entity_ids(hass, entry, Platform.SENSOR)
     async_add_entities(sensors, True)
 
     # Register callback for dynamic entity updates
@@ -548,9 +549,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-# ---------------------------------------------------------------------------
 # Helper
-# ---------------------------------------------------------------------------
 
 
 def _get_filtered_temp(bt_climate: BetterThermostat) -> float | None:
@@ -561,9 +560,7 @@ def _get_filtered_temp(bt_climate: BetterThermostat) -> float | None:
     return val
 
 
-# ---------------------------------------------------------------------------
 # Base classes
-# ---------------------------------------------------------------------------
 
 
 class _BtSensorBase(SensorEntity):
@@ -669,9 +666,7 @@ class _BtSimpleAttributeSensor(_BtSensorBase):
             self._attr_native_value = None
 
 
-# ---------------------------------------------------------------------------
 # Concrete sensor classes
-# ---------------------------------------------------------------------------
 
 
 class BetterThermostatExternalTempSensor(_BtSensorBase):

@@ -1,9 +1,10 @@
-# Quirks for BTH-RM230Z
 """Model quirks for BTH-RM230Z thermostats.
 
 Contains small device-specific fixes and overrides necessary for
 compatibility with the Better Thermostat integration.
 """
+
+from __future__ import annotations
 
 import logging
 
