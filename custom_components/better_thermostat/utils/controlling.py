@@ -724,8 +724,9 @@ async def check_system_mode(self, heater_entity_id=None):
 async def check_target_temperature(self, heater_entity_id=None):
     """Wait for TRV to confirm target temperature change, timeout after 6 minutes.
 
-    Polls the TRV temperature attribute every second until it matches
-    last_temperature or timeout is reached. Sets target_temp_received flag when complete.
+    Polls the TRV's temperature (and target_temp_low, when range mode is
+    supported) attribute every second until either matches last_temperature
+    or timeout is reached. Sets target_temp_received flag when complete.
 
     Parameters
     ----------

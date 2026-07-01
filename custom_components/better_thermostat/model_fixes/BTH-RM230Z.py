@@ -7,9 +7,7 @@ compatibility with the Better Thermostat integration.
 
 import logging
 
-from custom_components.better_thermostat.utils.helpers import (
-    trv_supports_temperature_range,
-)
+from ..utils.helpers import trv_supports_temperature_range
 
 _LOGGER = logging.getLogger(__name__)
 
