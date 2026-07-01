@@ -51,7 +51,7 @@ def find_device_entity(
     """Return the entity_id of the first matching entity on a device.
 
     A match is any entity belonging to ``device_id`` whose domain is in
-    ``domains`` and whose name, unique_id or entity_id contains any of
+    ``domains`` and whose name, unique_id or object-id contains any of
     ``keywords`` (case-insensitive). Returns ``None`` if nothing matches.
     """
     domains = tuple(domains)
@@ -61,12 +61,15 @@ def find_device_entity(
             continue
         name = (getattr(ent, "original_name", "") or "").lower()
         uid = (ent.unique_id or "").lower()
-        eid = (ent.entity_id or "").lower()
+        # Match keywords against the object-id only; the "<domain>." prefix
+        # would otherwise let a keyword such as "lock" match every lock-domain
+        # entity, not just the intended child-lock one.
+        object_id = (ent.entity_id or "").lower().split(".", 1)[-1]
 
         if (
             any(k in name for k in keywords)
             or any(k in uid for k in keywords)
-            or any(k in eid for k in keywords)
+            or any(k in object_id for k in keywords)
         ):
             return ent.entity_id
     return None

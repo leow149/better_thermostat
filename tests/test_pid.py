@@ -108,6 +108,49 @@ class TestPIDController:
         state = self._state("test_windup")
         assert state.pid_integral <= params.i_max
 
+    def test_integrator_relief_persisted_when_anti_windup_blocks(self):
+        """Relief near setpoint must persist even when anti-windup blocks growth.
+
+        A wound-up integrator (saturated output) with an error that just
+        flipped sign within the steady-state band applies the 20% relief to the
+        output; that reduced value must also be written back to pid_integral so
+        it is not silently forgotten on the next cycle.
+        """
+        params = PIDParams(
+            auto_tune=False,
+            kp=60.0,
+            ki=0.01,
+            kd=2000.0,
+            i_min=-100.0,
+            i_max=100.0,
+            steady_state_band_K=0.1,
+            min_hold_time_s=0.0,
+        )
+        # Wound-up integrator; the previous error was negative (sign flip below).
+        state = PIDState(
+            pid_integral=100.0,
+            last_error_sign=-1,
+            pid_kp=60.0,
+            pid_ki=0.01,
+            pid_kd=2000.0,
+        )
+        # e = 22.0 - 21.95 = 0.05: positive, within the 0.1 K band. The output
+        # stays saturated (anti-windup blocks growth) while the sign flip from
+        # negative triggers relief (i_term *= 0.8).
+        _, debug, new_state = compute_pid(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=21.95,
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key="test_relief",
+            state=state,
+        )
+        assert debug["anti_windup_blocked"] is True
+        assert debug["i_relief"] is True
+        # Relief persisted (0.8 * 100.0); without the fix this stays 100.0.
+        assert new_state.pid_integral == 80.0
+
     def test_auto_tune_overshoot(self):
         """Test auto-tuning on overshoot."""
         params = PIDParams(

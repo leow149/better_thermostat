@@ -333,8 +333,12 @@ def compute_pid(
 
     # Final control output
     u = p_term + i_term + d_term  # PID
-    # Only commit the integrator state when not blocked
-    if not aw_blocked:
+    # Commit the integrator state when integration was not anti-windup blocked.
+    # Integrator relief only moves the value toward zero (de-saturating), so a
+    # relief adjustment must still be persisted even when anti-windup blocked
+    # this cycle's growth; otherwise the relief is applied to the output but
+    # silently forgotten for the next cycle.
+    if not aw_blocked or i_relief:
         st.pid_integral = i_term
 
     # --- Slew-Rate & Hold-Time Logic ---
