@@ -617,7 +617,7 @@ async def control_trv(self, heater_entity_id=None):
         if _temperature is not None and (
             _new_hvac_mode != HVACMode.OFF or _no_off_system_mode
         ):
-            if _temperature != _current_set_temperature:
+            if _temperature not in _current_set_temperatures:
                 old = self.real_trvs[heater_entity_id].last_temperature
                 _LOGGER.debug(
                     "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
@@ -627,7 +627,11 @@ async def control_trv(self, heater_entity_id=None):
                     _temperature,
                 )
                 self.real_trvs[heater_entity_id].last_temperature = _temperature
-                await set_temperature(self, heater_entity_id, _temperature)
+                _tvr_has_quirk = await override_set_temperature(
+                    self, heater_entity_id, _temperature
+                )
+                if _tvr_has_quirk is False:
+                    await set_temperature(self, heater_entity_id, _temperature)
                 if self.real_trvs[heater_entity_id].target_temp_received is True:
                     self.real_trvs[heater_entity_id].target_temp_received = False
                     self.task_manager.create_task(
@@ -741,11 +745,11 @@ async def check_target_temperature(self, heater_entity_id=None):
                 self.device_name,
                 heater_entity_id,
                 _real_trv.last_temperature,
-                _current_set_temperature,
+                _current_set_temperatures,
             )
         if (
-            _current_set_temperature is None
-            or _real_trv.last_temperature == _current_set_temperature
+            not _current_set_temperatures
+            or _real_trv.last_temperature in _current_set_temperatures
         ):
             _timeout = 0
             break
@@ -756,7 +760,7 @@ async def check_target_temperature(self, heater_entity_id=None):
                 self.device_name,
                 heater_entity_id,
                 _real_trv.last_temperature,
-                _current_set_temperature,
+                _current_set_temperatures,
             )
             _timeout = 0
             break
@@ -766,4 +770,3 @@ async def check_target_temperature(self, heater_entity_id=None):
 
     _real_trv.target_temp_received = True
     return True
-    
