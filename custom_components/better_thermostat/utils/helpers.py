@@ -929,10 +929,18 @@ async def find_local_calibration_entity(self, entity_id):
             calibration_entity = entity.entity_id
             break
 
-    # Second pass: fallback to string matching on unique_id / entity_id / original_name
+    # Second pass: fallback to string matching on unique_id / entity_id / original_name.
+    # Restricted to the "number" domain: only number entities are writable
+    # calibration controls, so a read-only sensor sharing the same substring
+    # (e.g. sensor.*_local_temperature) is never a valid match here. Without
+    # this restriction the winner depended on registry iteration order, which
+    # is not a guarantee -- see PR #2105 follow-up discussion
     if calibration_entity is None:
         for entity in entity_entries:
             if entity.device_id != reg_entity.device_id:
+                continue
+            domain = (entity.entity_id or "").split(".", 1)[0]
+            if domain != "number":
                 continue
             descriptor = f"{entity.unique_id} {entity.entity_id} {getattr(entity, 'original_name', '') or ''}".lower()
             if (
