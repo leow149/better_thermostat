@@ -9,7 +9,7 @@ import math
 import re
 from typing import Any
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_NAME,
