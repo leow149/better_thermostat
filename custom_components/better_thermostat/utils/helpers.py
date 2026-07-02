@@ -1067,7 +1067,7 @@ async def find_local_calibration_entity(self, entity_id):
     # calibration controls, so a read-only sensor sharing the same substring
     # (e.g. sensor.*_local_temperature) is never a valid match here. Without
     # this restriction the winner depended on registry iteration order, which
-    # is not a guarantee -- see PR #2105 follow-up discussion
+    # is not a guaranteed order.
     if calibration_entity is None:
         for entity in entity_entries:
             if entity.device_id != reg_entity.device_id:
