@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import logging
 
-from ..utils.helpers import trv_supports_temperature_range
+from custom_components.better_thermostat.utils.helpers import (
+    trv_supports_temperature_range,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,14 +62,14 @@ async def override_set_temperature(self, entity_id, temperature):
     Returns
     -------
     bool
-            True if this quirk handled the set_temperature call for
-            entity_id (a service call was issued), False if entity_id
-            is not a BTH-RM230Z and the caller should fall back to the
-            generic adapter.
+            True, always: the quirk issues a service call for every
+            input (a plain temperature write when the entity has no
+            current state or no range support, a range write
+            otherwise), so the caller never needs the generic
+            adapter fallback.
     """
     state = self.hass.states.get(entity_id)
-    model = self.real_trvs[entity_id].model
-    if model == "BTH-RM230Z":
+    if state is None:
         _LOGGER.debug(
             "better_thermostat %s: TRV %s has no current state, "
             "falling back to simple set_temperature",
