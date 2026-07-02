@@ -50,6 +50,7 @@ def mock_bt_instance(mock_hass):
     bt._degraded_grace_until = None
     bt._degraded_warning_emitted = False
     bt._critical_grace_until = None
+    bt.is_removed = False
     return bt
 
 
@@ -994,6 +995,35 @@ class TestAwaitCriticalEntities:
 
         assert result == []
         assert sleep_calls == [3], "Should sleep once (3 s) before TRV comes online"
+
+    def test_stops_early_when_removed_mid_wait(self, mock_bt_instance):
+        """A teardown during the wait aborts the retry schedule immediately."""
+        from custom_components.better_thermostat.utils.watcher import (
+            await_critical_entities,
+        )
+
+        mock_bt_instance.real_trvs = {"climate.trv_1": {}}
+        mock_state = MagicMock()
+        mock_state.state = "unavailable"  # never comes online
+        mock_bt_instance.hass.states.get.return_value = mock_state
+
+        sleep_calls = []
+
+        async def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+            # Instance torn down while we were waiting.
+            mock_bt_instance.is_removed = True
+
+        result = self._run(
+            await_critical_entities(
+                mock_bt_instance, delays=(3, 5, 10, 15), _sleep=fake_sleep
+            )
+        )
+
+        # Only the first delay elapses; the post-sleep is_removed check returns
+        # instead of running the remaining schedule.
+        assert sleep_calls == [3]
+        assert result == ["climate.trv_1"]
 
     def test_returns_pending_after_all_retries_exhausted(self, mock_bt_instance):
         """TRV stays unavailable through all retries → returned in pending list."""

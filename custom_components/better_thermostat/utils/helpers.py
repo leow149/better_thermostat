@@ -51,7 +51,7 @@ def find_device_entity(
     """Return the entity_id of the first matching entity on a device.
 
     A match is any entity belonging to ``device_id`` whose domain is in
-    ``domains`` and whose name, unique_id or entity_id contains any of
+    ``domains`` and whose name, unique_id or object-id contains any of
     ``keywords`` (case-insensitive). Returns ``None`` if nothing matches.
     """
     domains = tuple(domains)
@@ -61,12 +61,15 @@ def find_device_entity(
             continue
         name = (getattr(ent, "original_name", "") or "").lower()
         uid = (ent.unique_id or "").lower()
-        eid = (ent.entity_id or "").lower()
+        # Match keywords against the object-id only; the "<domain>." prefix
+        # would otherwise let a keyword such as "lock" match every lock-domain
+        # entity, not just the intended child-lock one.
+        object_id = (ent.entity_id or "").lower().split(".", 1)[-1]
 
         if (
             any(k in name for k in keywords)
             or any(k in uid for k in keywords)
-            or any(k in eid for k in keywords)
+            or any(k in object_id for k in keywords)
         ):
             return ent.entity_id
     return None
@@ -298,7 +301,9 @@ def group_all_members_off(self) -> bool:
 
     A member counts as off when its reported HVAC state is ``off`` or, for a
     ``no_off_system_mode`` device (which never reports ``off``), when its
-    current setpoint has dropped to that device's minimum temperature.
+    current setpoint has dropped to that device's minimum temperature. The
+    setpoint is read via :func:`attr_to_celsius` (with ``target_temp_low`` as
+    fallback attribute) so it is compared in Celsius, like ``min_temp``.
     """
     trv_ids = list(self.real_trvs.keys())
     if len(trv_ids) <= 1:
@@ -316,10 +321,13 @@ def group_all_members_off(self) -> bool:
         if member is not None and (member.advanced or {}).get(
             "no_off_system_mode", False
         ):
-            setpoint = convert_to_float(
-                str(state.attributes.get("temperature")),
-                self.device_name,
-                "group_all_members_off()",
+            setpoint_key = (
+                "temperature"
+                if "temperature" in state.attributes
+                else "target_temp_low"
+            )
+            setpoint = attr_to_celsius(
+                self, state, setpoint_key, None, "group_all_members_off()"
             )
             if (
                 setpoint is not None

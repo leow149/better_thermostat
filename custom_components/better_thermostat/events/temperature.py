@@ -8,6 +8,7 @@ propagated to the target devices.
 
 from __future__ import annotations
 
+from datetime import timedelta
 import logging
 import math
 from time import monotonic
@@ -190,11 +191,6 @@ async def trigger_temperature_change(self, event):
         None if _incoming_temperature is None else round(_incoming_temperature, 2)
     )
 
-    # Ensure timestamp exists (first run guard)
-    if self.last_external_sensor_change is None:
-        # Set an old timestamp so the first change is accepted
-        self.last_external_sensor_change = dt_util.now()
-
     # Base debounce (seconds) for normal devices; anti-flicker lets us go down to 5s
     # here. HomematicIP still gets a higher interval (600s) below.
     _time_diff = 5
@@ -209,6 +205,14 @@ async def trigger_temperature_change(self, event):
                 _time_diff = 600
     except KeyError, TypeError:
         pass
+
+    # First-run guard: seed the timestamp far enough in the past that the
+    # first real update clears the debounce interval finalized above (setting
+    # it to "now" would make the age zero and fail the interval check).
+    if self.last_external_sensor_change is None:
+        self.last_external_sensor_change = dt_util.now() - timedelta(
+            seconds=_time_diff + 1
+        )
 
     if not is_reasonable_temperature(_incoming_temperature_q):
         # raise a ha repair notification
@@ -334,7 +338,9 @@ async def trigger_temperature_change(self, event):
         _accept_reason = "plateau"
 
     if _accept_reason is not None:
-        # Process immediately when the interval has elapsed OR the change is very large
+        # One of the accept paths above matched (first reading, or a
+        # significant / accumulated / plateau change once the debounce
+        # interval elapsed); log the decision and apply the update.
         _LOGGER.debug(
             "better_thermostat %s: external_temperature update accepted (old=%.2f new=%.2f diff=%.2f "
             "age=%.1fs threshold=%.2f interval=%ss reason=%s accum=%.2f dir=%s)",

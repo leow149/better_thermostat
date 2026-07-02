@@ -112,7 +112,8 @@ async def trigger_trv_change(self, event):
             trv.accept_next_internal_temp = True
         return
 
-    child_lock = (trv.advanced or {}).get("child_lock")
+    advanced = trv.advanced or {}
+    child_lock = advanced.get("child_lock")
 
     # Dynamic model detection: only once (e.g. at startup), not on every event
     try:
@@ -275,7 +276,7 @@ async def trigger_trv_change(self, event):
     _new_heating_setpoint = attr_to_celsius(
         self, new_state, _main_key, None, "trigger_trv_change()"
     )
-    _is_no_off_device = trv.advanced.get("no_off_system_mode", False)
+    _is_no_off_device = advanced.get("no_off_system_mode", False)
     if (
         _new_heating_setpoint is not None
         and _old_heating_setpoint is not None
@@ -288,6 +289,10 @@ async def trigger_trv_change(self, event):
             _new_heating_setpoint,
             trv.last_temperature,
         )
+        # Preserve the device's raw reported setpoint before range clamping;
+        # no_off OFF detection must compare against the device's true min_temp,
+        # not a value the clamp may have raised into [bt_min_temp, bt_max_temp].
+        _raw_heating_setpoint = _new_heating_setpoint
         if (
             _new_heating_setpoint < self.bt_min_temp
             or self.bt_max_temp < _new_heating_setpoint
@@ -373,8 +378,8 @@ async def trigger_trv_change(self, event):
                 _step,
             )
 
-        if trv.advanced.get("no_off_system_mode", False):
-            if _new_heating_setpoint == trv.min_temp:
+        if advanced.get("no_off_system_mode", False):
+            if _raw_heating_setpoint == trv.min_temp:
                 # Only set OFF if window is NOT open - min_temp during window
                 # open was set by BT, not by user turning off heating - and only
                 # when the whole group agrees, so a single no_off valve dropping
@@ -439,10 +444,11 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
     _new_local_calibration = None
     _new_heating_setpoint = None
     _new_valve_position = None
+    advanced = self.real_trvs[entity_id].advanced or {}
 
     try:
-        _calibration_type = self.real_trvs[entity_id].advanced.get("calibration")
-        _calibration_mode = self.real_trvs[entity_id].advanced.get("calibration_mode")
+        _calibration_type = advanced.get("calibration")
+        _calibration_mode = advanced.get("calibration_mode")
 
         if _calibration_type is None:
             _LOGGER.warning(
@@ -507,7 +513,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
             )
         if hvac_mode == HVACMode.OFF and (
             (_system_modes is not None and HVACMode.OFF not in _system_modes)
-            or self.real_trvs[entity_id].advanced.get("no_off_system_mode")
+            or advanced.get("no_off_system_mode")
         ):
             _min_temp = self.real_trvs[entity_id].min_temp
             _LOGGER.debug(

@@ -1707,3 +1707,32 @@ class TestGroupedNoOffAdoption:
             await trigger_trv_change(bt, event)
 
         assert bt.bt_hvac_mode == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_no_off_below_bt_min_detected_via_raw_setpoint(self, mock_bt):
+        """A no_off report below bt_min_temp is still OFF (compared pre-clamp).
+
+        The setpoint is clamped up to bt_min_temp for BT state, but OFF
+        detection must compare the device's raw report against its own
+        min_temp; a device whose min_temp is below bt_min_temp is not missed.
+        """
+        mock_bt.bt_min_temp = 5.0
+        mock_bt.real_trvs[ENTITY_ID].min_temp = 4.0
+        mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
+        mock_bt.real_trvs[ENTITY_ID].hvac_mode = "heat"
+
+        new_state = _make_state(state_str="heat", attributes={"temperature": 4.0})
+        mock_bt.hass.states.get.return_value = new_state
+
+        event = _make_event(
+            mock_bt,
+            new_state=new_state,
+            old_state=_make_state(state_str="heat", attributes={"temperature": 19.0}),
+        )
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=None,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_hvac_mode == HVACMode.OFF
